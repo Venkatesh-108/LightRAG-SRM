@@ -31,6 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
             confirmationMessage: document.getElementById('confirmation-message'),
             confirmYes: document.getElementById('confirm-yes'),
             confirmNo: document.getElementById('confirm-no'),
+            suggestionCards: document.querySelectorAll('.suggestion-card'),
         },
 
         // API Communication
@@ -345,6 +346,15 @@ document.addEventListener('DOMContentLoaded', () => {
             app.ui.renderDocuments(documents);
         },
 
+        // UI Animations
+        animations: {
+            animateSuggestionCards() {
+                app.els.suggestionCards.forEach((card, index) => {
+                    card.style.animationDelay = `${index * 100}ms`;
+                });
+            },
+        },
+
         // Initialization
         async init() {
             // Setup event listeners
@@ -377,6 +387,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Initial state
             app.ui.switchView('chat');
+            app.animations.animateSuggestionCards(); // Animate cards on load
             const documents = await this.api.getDocuments();
             this.ui.renderDocuments(documents);
         },
