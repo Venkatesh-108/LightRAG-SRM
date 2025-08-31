@@ -200,8 +200,18 @@ def delete_file(filename):
     try:
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         if os.path.exists(file_path):
+            # Remove from filesystem
             os.remove(file_path)
-            # Here you might want to re-index your documents if the pipeline supports removal
+            
+            # Remove from vector store for all model providers
+            global _rag_pipelines
+            for provider in list(_rag_pipelines.keys()):
+                try:
+                    pipeline = _rag_pipelines[provider]
+                    pipeline.delete_document(filename)
+                except Exception as e:
+                    print(f"Error removing {filename} from {provider} pipeline: {e}")
+            
             return jsonify({'success': f'File "{filename}" deleted successfully.'}), 200
         else:
             return jsonify({'error': 'File not found.'}), 404
@@ -213,11 +223,19 @@ def delete_all_files():
     try:
         folder = app.config['UPLOAD_FOLDER']
         for filename in os.listdir(folder):
-            file_path = os.path.join(folder, filename)
-            if os.path.isfile(file_path):
-                os.remove(file_path)
-        # Re-initialize or clear the RAG pipeline
+            if filename.endswith('.pdf'):
+                os.remove(os.path.join(folder, filename))
+        
+        # Clear vector stores for all model providers
         global _rag_pipelines
+        for provider in list(_rag_pipelines.keys()):
+            try:
+                pipeline = _rag_pipelines[provider]
+                pipeline.clear_all_documents()
+            except Exception as e:
+                print(f"Error clearing {provider} pipeline: {e}")
+        
+        # Clear the pipeline cache
         _rag_pipelines = {}
         return jsonify({'success': 'All documents deleted successfully.'}), 200
     except Exception as e:

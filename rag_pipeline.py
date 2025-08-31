@@ -323,3 +323,81 @@ Answer:"""
         
         # Generate response
         return self._generate_response(query_text, relevant_docs)
+
+    def delete_document(self, filename: str) -> bool:
+        """Remove a specific document from the vector store."""
+        if not self.documents:
+            return False
+        
+        # Find documents with matching filename
+        docs_to_remove = []
+        remaining_docs = []
+        
+        for i, doc in enumerate(self.documents):
+            if doc.metadata.get('filename') == filename:
+                docs_to_remove.append(i)
+            else:
+                remaining_docs.append(doc)
+        
+        if not docs_to_remove:
+            return False
+        
+        # Update documents list
+        self.documents = remaining_docs
+        
+        # Rebuild index with remaining documents
+        if self.documents:
+            try:
+                texts = [doc.content for doc in self.documents]
+                embeddings = self.embedder.encode(texts)
+                dimension = embeddings.shape[1]
+                self.index = faiss.IndexFlatL2(dimension)
+                self.index.add(embeddings.astype('float32'))
+                
+                # Save updated index and documents
+                self._save_index_and_docs()
+            except Exception as e:
+                print(f"Error rebuilding index after document deletion: {e}")
+                return False
+        else:
+            # No documents left, clear everything
+            self.index = None
+            self._clear_vector_store()
+        
+        return True
+
+    def clear_all_documents(self) -> bool:
+        """Remove all documents from the vector store."""
+        self.documents = []
+        self.index = None
+        return self._clear_vector_store()
+
+    def _save_index_and_docs(self):
+        """Save the current index and documents to disk."""
+        try:
+            index_path = os.path.join(self.vector_store_path, "index.faiss")
+            docs_path = os.path.join(self.vector_store_path, "documents.pkl")
+            
+            if self.index is not None:
+                faiss.write_index(self.index, index_path)
+            
+            with open(docs_path, 'wb') as f:
+                pickle.dump(self.documents, f)
+        except Exception as e:
+            raise ValueError(f"Failed to save index and documents: {str(e)}")
+
+    def _clear_vector_store(self) -> bool:
+        """Clear all vector store files."""
+        try:
+            index_path = os.path.join(self.vector_store_path, "index.faiss")
+            docs_path = os.path.join(self.vector_store_path, "documents.pkl")
+            
+            if os.path.exists(index_path):
+                os.remove(index_path)
+            if os.path.exists(docs_path):
+                os.remove(docs_path)
+            
+            return True
+        except Exception as e:
+            print(f"Error clearing vector store: {e}")
+            return False
