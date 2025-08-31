@@ -329,6 +329,17 @@ body {
     word-wrap: break-word;
 }
 
+.message .text ul,
+.message .text ol {
+    padding-left: 20px;
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+
+.message .text li {
+    margin-bottom: 5px;
+}
+
 .message.user {
     align-self: flex-end;
     flex-direction: row-reverse;

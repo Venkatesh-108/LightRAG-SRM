@@ -1,6 +1,7 @@
 // pro-main.js
 
 document.addEventListener('DOMContentLoaded', () => {
+    const converter = new showdown.Converter();
     const app = {
         // DOM Elements
         els: {
@@ -131,9 +132,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     `;
                 }
 
+                let formattedText;
+                if (type === 'bot') {
+                    formattedText = converter.makeHtml(text);
+                } else {
+                    const tempDiv = document.createElement('div');
+                    tempDiv.textContent = text;
+                    formattedText = tempDiv.innerHTML;
+                }
+
                 const messageContent = `
                     <div class="message-content">
-                        <div class="text">${text}</div>
+                        <div class="text">${formattedText}</div>
                         ${actions}
                     </div>
                 `;

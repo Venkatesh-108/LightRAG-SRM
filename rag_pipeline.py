@@ -268,17 +268,23 @@ class RAGPipeline:
         return retrieved_docs
 
     def _generate_response(self, query: str, context_docs: List[Document]) -> str:
-        """Generate response using the selected model provider."""
+        """Generate response using the selected model provider with markdown formatting."""
         context = "\n\n".join([doc.content for doc in context_docs])
         
-        prompt = f"""Based on the following context, please answer the question.
+        prompt = f"""Please provide a comprehensive answer to the following question based on the provided context. Your response should be well-structured and formatted using Markdown.
+
+Use headings, lists, bold text, and other Markdown elements to improve readability. For example:
+
+- Use bullet points for lists.
+- Use **bold** or *italic* text to emphasize key points.
+- Use headings (`#`, `##`) to structure your answer.
 
 Context:
 {context}
 
 Question: {query}
 
-Answer:"""
+Answer (in Markdown):"""
 
         if self.model_provider == 'openai':
             try:
@@ -287,22 +293,20 @@ Answer:"""
                 response = client.chat.completions.create(
                     model="gpt-3.5-turbo",
                     messages=[
-                        {"role": "system", "content": "You are a helpful assistant that answers questions based on the provided context."},
+                        {"role": "system", "content": "You are a helpful assistant that answers questions based on the provided context. Please format your responses in Markdown."},
                         {"role": "user", "content": prompt}
-                    ],
-                    max_tokens=500,
-                    temperature=0.7
+                    ]
                 )
                 return response.choices[0].message.content
             except Exception as e:
-                return f"Error with OpenAI API: {str(e)}"
+                return f"Error with OpenAI: {str(e)}."
         
         elif self.model_provider == 'ollama':
             try:
                 response = ollama.chat(
                     model=Config.OLLAMA_MODEL,
                     messages=[
-                        {"role": "system", "content": "You are a helpful assistant that answers questions based on the provided context."},
+                        {"role": "system", "content": "You are a helpful assistant that answers questions based on the provided context. Please format your responses in Markdown."},
                         {"role": "user", "content": prompt}
                     ]
                 )
