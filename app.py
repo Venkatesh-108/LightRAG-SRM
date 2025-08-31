@@ -85,5 +85,33 @@ def select_model():
 
     return jsonify({'success': f'Model switched to {model_provider}.'}) 
 
+@app.route('/delete/<filename>', methods=['DELETE'])
+def delete_file(filename):
+    try:
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            # Here you might want to re-index your documents if the pipeline supports removal
+            return jsonify({'success': f'File "{filename}" deleted successfully.'}), 200
+        else:
+            return jsonify({'error': 'File not found.'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/delete_all', methods=['DELETE'])
+def delete_all_files():
+    try:
+        folder = app.config['UPLOAD_FOLDER']
+        for filename in os.listdir(folder):
+            file_path = os.path.join(folder, filename)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+        # Re-initialize or clear the RAG pipeline
+        global _rag_pipelines
+        _rag_pipelines = {}
+        return jsonify({'success': 'All documents deleted successfully.'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     app.run(debug=True)
