@@ -1,0 +1,249 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+    --primary-color: #4A90E2;
+    --background-color: #F7F8FA;
+    --sidebar-bg: #FFFFFF;
+    --border-color: #EAECEF;
+    --text-primary: #2D3748;
+    --text-secondary: #718096;
+    --white: #FFFFFF;
+    --font-family: 'Inter', sans-serif;
+}
+
+body {
+    font-family: var(--font-family);
+    margin: 0;
+    background-color: var(--background-color);
+    color: var(--text-primary);
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.hidden {
+    display: none !important;
+}
+
+.container {
+    display: flex;
+    width: 100%;
+    height: 100%;
+}
+
+.sidebar {
+    width: 280px;
+    background-color: var(--sidebar-bg);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    padding: 24px;
+}
+
+.sidebar-header {
+    margin-bottom: 24px;
+}
+
+.sidebar-header h2 {
+    font-size: 18px;
+    margin: 0;
+}
+
+.sidebar-header p {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin: 4px 0 0;
+}
+
+.sidebar-nav {
+    display: flex;
+    background-color: var(--background-color);
+    border-radius: 8px;
+    padding: 4px;
+    margin-bottom: 24px;
+}
+
+.nav-button {
+    flex: 1;
+    padding: 8px 12px;
+    border: none;
+    background-color: transparent;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.nav-button.active {
+    background-color: var(--white);
+    color: var(--primary-color);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.sidebar-content {
+    flex-grow: 1;
+}
+
+.new-chat-button, .upload-document-button {
+    width: 100%;
+    padding: 10px;
+    background-color: var(--primary-color);
+    color: var(--white);
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-bottom: 16px;
+}
+
+.no-chats-message, .documents-list p {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.main-content {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+#welcome-view {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    text-align: center;
+}
+
+.welcome-message h2 {
+    font-size: 24px;
+    margin-bottom: 8px;
+}
+
+.welcome-message p {
+    color: var(--text-secondary);
+}
+
+#chat-view {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 24px;
+}
+
+.chat-messages {
+    flex-grow: 1;
+    overflow-y: auto;
+    margin-bottom: 16px;
+}
+
+.message {
+    padding: 10px 16px;
+    border-radius: 18px;
+    margin-bottom: 12px;
+    max-width: 75%;
+    line-height: 1.5;
+}
+
+.user-message {
+    background-color: var(--primary-color);
+    color: var(--white);
+    align-self: flex-end;
+    margin-left: auto;
+}
+
+.bot-message {
+    background-color: var(--sidebar-bg);
+    border: 1px solid var(--border-color);
+    align-self: flex-start;
+}
+
+.chat-input-area {
+    display: flex;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px;
+}
+
+#chat-input {
+    flex-grow: 1;
+    border: none;
+    outline: none;
+    font-size: 14px;
+    padding: 0 8px;
+}
+
+#send-button {
+    background-color: var(--primary-color);
+    color: var(--white);
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    cursor: pointer;
+}
+
+#documents-view {
+    padding: 24px;
+}
+
+.documents-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.documents-header h2 {
+    margin: 0;
+}
+
+.upload-pdf-button {
+    background-color: var(--primary-color);
+    color: var(--white);
+    border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.document-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 24px;
+}
+
+.document-card {
+    background-color: var(--white);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.document-card h3 {
+    font-size: 16px;
+    margin: 0 0 16px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chat-about-button {
+    width: 100%;
+    padding: 8px;
+    background-color: var(--background-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.model-selector select {
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+}

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SRM AI Doc Assist</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>SRM AI Doc Assist</h2>
+                <p>Document Intelligence</p>
+            </div>
+            <nav class="sidebar-nav">
+                <button class="nav-button active" data-view="chats">Chats</button>
+                <button class="nav-button" data-view="documents">Documents</button>
+            </nav>
+            <div class="sidebar-content">
+                <div id="chats-list-view">
+                    <button class="new-chat-button">+ New Chat</button>
+                    <div class="chats-list">
+                        <!-- Chat history will be populated here -->
+                        <p class="no-chats-message">No chats yet</p>
+                    </div>
+                </div>
+                <div id="documents-list-view" class="hidden">
+                    <button class="upload-document-button">+ Upload Document</button>
+                    <input type="file" id="file-upload-input" class="hidden" accept=".pdf">
+                    <div class="documents-list">
+                        <!-- Document list will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </aside>
+        <main class="main-content">
+            <div id="welcome-view">
+                <div class="welcome-message">
+                    <div class="chat-icon"></div>
+                    <h2>Welcome to SRM AI Doc Assist</h2>
+                    <p>Start a new conversation or upload a document to begin</p>
+                </div>
+            </div>
+            <div id="chat-view" class="hidden">
+                <div class="chat-messages"></div>
+                <div class="chat-input-area">
+                    <input type="text" id="chat-input" placeholder="Ask a question...">
+                    <button id="send-button">Send</button>
+                </div>
+            </div>
+            <div id="documents-view" class="hidden">
+                <div class="documents-header">
+                    <h2>Document Library</h2>
+                    <div class="model-selector">
+                        <label for="model-provider">Model:</label>
+                        <select id="model-provider">
+                            <option value="ollama">Ollama</option>
+                            <option value="openai">OpenAI</option>
+                        </select>
+                    </div>
+                    <button class="upload-pdf-button">Upload PDF</button>
+                </div>
+                <div class="document-grid">
+                    <!-- Document cards will be populated here -->
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

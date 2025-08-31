@@ -1,0 +1,8 @@
+flask
+python-dotenv
+ollama
+openai
+PyPDF2
+faiss-cpu
+sentence-transformers
+numpy
