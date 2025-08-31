@@ -8,7 +8,7 @@ class Config:
     UPLOAD_FOLDER = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'documents')
     ALLOWED_EXTENSIONS = {'pdf'}
     OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
-    OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'llama3')
+    OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'llama3.2:3b')
     VECTOR_STORE_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'vector_store')
 
 # Create the upload and vector store directories if they don't exist

@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
             confirmYes: document.getElementById('confirm-yes'),
             confirmNo: document.getElementById('confirm-no'),
             suggestionCards: document.querySelectorAll('.suggestion-card'),
+            welcomeContent: document.querySelector('.welcome-content'),
         },
 
         // API Communication
@@ -90,40 +91,57 @@ document.addEventListener('DOMContentLoaded', () => {
             },
             createMessageElement(text, type) {
                 const messageElement = document.createElement('div');
-                messageElement.classList.add('message', type);
-                const icon = `<div class="icon">${type === 'user' ? 'U' : 'AI'}</div>`;
-                const textDiv = `<div class="text">${text}</div>`;
-                messageElement.innerHTML = type === 'user' ? textDiv + icon : icon + textDiv;
+                messageElement.classList.add('message', type, 'message-entry');
+
+                const avatar = `<div class="avatar">${type === 'user' ? '<i class="fas fa-user"></i>' : '<i class="fas fa-robot"></i>'}</div>`;
+                
+                let actions = '';
+                if (type === 'bot') {
+                    actions = `
+                        <div class="message-actions">
+                            <button class="action-btn copy-btn" title="Copy text"><i class="fas fa-copy"></i></button>
+                        </div>
+                    `;
+                }
+
+                const messageContent = `
+                    <div class="message-content">
+                        <div class="text">${text}</div>
+                        ${actions}
+                    </div>
+                `;
+
+                messageElement.innerHTML = avatar + messageContent;
                 return messageElement;
             },
             createTypingIndicator() {
                 return this.createMessageElement('<div class="typing-indicator"><span></span><span></span><span></span></div>', 'bot');
             },
             renderDocuments(documents) {
+                app.els.documentsGrid.innerHTML = '';
                 if (documents.length > 0) {
-                    app.els.documentsGrid.innerHTML = '';
                     app.els.emptyState.style.display = 'none';
-                    
+                    app.els.documentsGrid.style.display = 'flex'; // Use flex for a list
+
                     documents.forEach(doc => {
-                        const docItem = document.createElement('div');
-                        docItem.classList.add('document-item');
-                        
-                        // Get actual indexing time from storage or default
+                        const item = document.createElement('div');
+                        item.classList.add('document-item');
+
                         const indexingTime = localStorage.getItem(`indexing-time-${doc}`) || '~5.0';
-                        
-                        docItem.innerHTML = `
-                            <div class="document-icon">
-                                <i class="fas fa-file-pdf"></i>
-                            </div>
+
+                        item.innerHTML = `
                             <div class="document-info">
-                                <div class="document-name">${doc}</div>
-                                <div class="document-meta">
-                                    <span><i class="fas fa-calendar"></i> Added today</span>
-                                    <span><i class="fas fa-check-circle"></i> Indexed in ${indexingTime}s</span>
+                                <div class="file-icon"><i class="fas fa-file-pdf"></i></div>
+                                <div class="file-details">
+                                    <div class="document-name">${doc}</div>
+                                    <div class="metadata">
+                                        <span><i class="fas fa-calendar"></i> Added today</span>
+                                        <span><i class="fas fa-check-circle"></i> Indexed in ${indexingTime}s</span>
+                                    </div>
                                 </div>
                             </div>
                             <div class="document-actions">
-                                <button class="action-btn" title="Chat about this document">
+                                <button class="action-btn chat-doc-btn" data-filename="${doc}" title="Chat with document">
                                     <i class="fas fa-comments"></i>
                                 </button>
                                 <button class="action-btn delete" data-filename="${doc}" title="Delete document">
@@ -131,11 +149,11 @@ document.addEventListener('DOMContentLoaded', () => {
                                 </button>
                             </div>
                         `;
-                        app.els.documentsGrid.appendChild(docItem);
+                        app.els.documentsGrid.appendChild(item);
                     });
                 } else {
-                    app.els.documentsGrid.innerHTML = '';
-                    app.els.emptyState.style.display = 'block';
+                    app.els.documentsGrid.style.display = 'none';
+                    app.els.emptyState.style.display = 'flex';
                 }
             },
             showUploadModal(filename) {
@@ -249,6 +267,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const messageText = app.els.chatInput.value.trim();
                 if (!messageText) return;
 
+                if (app.els.welcomeContent) {
+                    app.els.welcomeContent.classList.add('hidden');
+                }
+
                 app.els.chatMessages.appendChild(app.ui.createMessageElement(messageText, 'user'));
                 app.els.chatInput.value = '';
                 app.els.chatMessages.scrollTop = app.els.chatMessages.scrollHeight;
@@ -327,6 +349,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
             },
+            handleMessageActions(event) {
+                const copyBtn = event.target.closest('.copy-btn');
+                if (!copyBtn) return;
+
+                const messageText = copyBtn.closest('.message-content').querySelector('.text').textContent;
+                navigator.clipboard.writeText(messageText).then(() => {
+                    app.ui.showToast('Copied to clipboard!', 'success');
+                }).catch(err => {
+                    app.ui.showToast('Failed to copy text.', 'error');
+                });
+            },
+
             async handleDeleteAllDocuments() {
                 const confirmed = await app.ui.showConfirmation('Are you sure you want to delete ALL documents? This action cannot be undone.');
                 if (confirmed) {
@@ -384,6 +418,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (app.els.documentsGrid) {
                 app.els.documentsGrid.addEventListener('click', this.handlers.handleDeleteDocument);
             }
+            app.els.chatMessages.addEventListener('click', this.handlers.handleMessageActions);
 
             // Initial state
             app.ui.switchView('chat');
