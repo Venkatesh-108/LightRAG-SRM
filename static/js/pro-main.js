@@ -419,6 +419,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
             },
+            handleOpenDocument(event) {
+                const docNameElement = event.target.closest('.document-name');
+                if (docNameElement) {
+                    const docName = docNameElement.textContent;
+                    window.open(`/documents/${docName}`, '_blank');
+                }
+            },
+            handleRefreshDocuments(event) {
+                const refreshButton = app.els.refreshDocs;
+                const refreshIcon = refreshButton.querySelector('i');
+                refreshIcon.classList.add('refreshing-icon');
+                setTimeout(() => refreshIcon.classList.remove('refreshing-icon'), 1000);
+                app.refreshDocuments();
+            },
         },
 
         async refreshDocuments() {
@@ -471,13 +485,14 @@ document.addEventListener('DOMContentLoaded', () => {
             app.els.fileInput.addEventListener('change', this.handlers.handleFileUpload);
             app.els.deleteAllButton.addEventListener('click', this.handlers.handleDeleteAllDocuments);
             if (app.els.refreshDocs) {
-                app.els.refreshDocs.addEventListener('click', () => app.refreshDocuments());
+                app.els.refreshDocs.addEventListener('click', this.handlers.handleRefreshDocuments);
             }
             if (app.els.modalClose) {
                 app.els.modalClose.addEventListener('click', () => app.ui.hideUploadModal());
             }
             if (app.els.documentsGrid) {
                 app.els.documentsGrid.addEventListener('click', this.handlers.handleDeleteDocument);
+                app.els.documentsGrid.addEventListener('click', this.handlers.handleOpenDocument);
             }
             app.els.chatMessages.addEventListener('click', this.handlers.handleMessageActions);
             app.els.modelOptions.forEach(option => option.addEventListener('click', this.handlers.handleModelSelection));

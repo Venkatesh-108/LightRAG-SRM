@@ -546,6 +546,12 @@ body {
 .document-info .document-name {
     font-weight: 500;
     color: var(--text-primary);
+    position: relative;
+    cursor: pointer;
+}
+
+.document-info .document-name:hover::after {
+    content: none;
 }
 
 .document-info .metadata {
@@ -633,6 +639,23 @@ body {
 
 #refresh-docs:hover {
     background-color: var(--border-hover);
+}
+
+#refresh-docs.refreshing {
+    animation: spin 1s linear;
+}
+
+#refresh-docs.refreshing i {
+    animation: spin 1s linear;
+}
+
+.refreshing-icon {
+    animation: spin 1s linear;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
 
 /* Empty State */

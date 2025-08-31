@@ -168,6 +168,10 @@ def get_documents():
     except Exception as e:
         return jsonify({'error': f'Unexpected error retrieving documents: {str(e)}'}), 500
 
+@app.route('/documents/<path:filename>', methods=['GET'])
+def serve_document(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
 @app.route('/query', methods=['POST'])
 def query():
     data = request.get_json()
