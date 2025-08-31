@@ -10,6 +10,7 @@ class Config:
     OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
     OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'llama3.2:3b')
     VECTOR_STORE_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'vector_store')
+    MODEL_PROVIDER = os.environ.get('MODEL_PROVIDER', 'ollama')
 
 # Create the upload and vector store directories if they don't exist
 if not os.path.exists(Config.UPLOAD_FOLDER):
