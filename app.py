@@ -29,7 +29,37 @@ def get_rag_pipeline():
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', initial_view='chat')
+
+@app.route('/settings')
+def settings():
+    return render_template('index.html', initial_view='settings')
+
+@app.route('/get_model', methods=['GET'])
+def get_current_model():
+    # For now, return the default from config or the first available provider
+    # In a real app, you'd store the current provider in session/database
+    from config import MODEL_PROVIDER
+    return jsonify({'provider': MODEL_PROVIDER})
+
+@app.route('/set_model', methods=['POST'])
+def set_model_provider():
+    global _rag_pipelines
+    data = request.get_json()
+    provider = data.get('provider')
+
+    if provider not in ['ollama', 'openai']:
+        return jsonify({'error': 'Invalid provider'}), 400
+
+    # Clear the cache for the specific provider to force a reload
+    if provider in _rag_pipelines:
+        del _rag_pipelines[provider]
+    
+    # You might want to set this in a session or a global config
+    # For simplicity, we'll just clear the cache and let it reload on next query
+    print(f"Model provider switched to: {provider}")
+    
+    return jsonify({'success': True})
 
 @app.route('/upload', methods=['POST'])
 def upload_file():

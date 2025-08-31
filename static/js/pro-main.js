@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
             navLinks: document.querySelectorAll('.sidebar-nav a'),
             chatInterface: document.querySelector('.chat-interface'),
             documentsPage: document.querySelector('.documents-page'),
+            settingsPage: document.querySelector('.settings-page'),
             sendButton: document.querySelector('.send-button'),
             chatInput: document.querySelector('.chat-input'),
             chatMessages: document.querySelector('.chat-messages'),
@@ -33,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
             confirmNo: document.getElementById('confirm-no'),
             suggestionCards: document.querySelectorAll('.suggestion-card'),
             welcomeContent: document.querySelector('.welcome-content'),
+            modelOptions: document.querySelectorAll('.model-option'),
         },
 
         // API Communication
@@ -68,18 +70,35 @@ document.addEventListener('DOMContentLoaded', () => {
                 const response = await fetch('/delete_all', { method: 'DELETE' });
                 return response.json();
             },
+            async setModelProvider(provider) {
+                const response = await fetch('/set_model', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider }),
+                });
+                return response.json();
+            },
+            async getCurrentModel() {
+                const response = await fetch('/get_model');
+                return response.json();
+            },
         },
 
         // UI Management
         ui: {
+            hideAllViews() {
+                app.els.chatInterface.style.display = 'none';
+                app.els.documentsPage.style.display = 'none';
+                app.els.settingsPage.style.display = 'none';
+            },
+
             switchView(view) {
+                console.log('Switching to view:', view); // Debug log
                 app.els.navLinks.forEach(l => l.classList.remove('active'));
                 const targetLink = document.querySelector(`.sidebar-nav a[data-view="${view}"]`);
                 if (targetLink) targetLink.classList.add('active');
 
-                // Hide all sections
-                app.els.chatInterface.style.display = 'none';
-                app.els.documentsPage.style.display = 'none';
+                app.ui.hideAllViews();
 
                 // Show selected section
                 if (view === 'chat') {
@@ -87,6 +106,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (view === 'documents') {
                     app.els.documentsPage.style.display = 'block';
                     app.refreshDocuments();
+                } else if (view === 'settings') {
+                    if (app.els.settingsPage) {
+                        app.els.settingsPage.style.display = 'block';
+                        console.log('Settings page displayed'); // Debug log
+                        app.loadCurrentModel();
+                    } else {
+                        console.error('Settings page element not found');
+                    }
                 }
             },
             createMessageElement(text, type) {
@@ -163,11 +190,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 app.els.statusIcon.className = 'status-icon';
                 app.els.progressStage.textContent = 'Preparing upload...';
                 app.els.indexingSteps.style.display = 'none';
-                app.els.uploadModal.style.display = 'flex';
+                app.els.uploadModal.classList.add('active');
             },
             hideUploadModal() {
                 setTimeout(() => {
-                    app.els.uploadModal.style.display = 'none';
+                    app.els.uploadModal.classList.remove('active');
                     this.resetUploadModal();
                 }, 500);
             },
@@ -203,16 +230,16 @@ document.addEventListener('DOMContentLoaded', () => {
             showConfirmation(message) {
                 return new Promise((resolve) => {
                     app.els.confirmationMessage.textContent = message;
-                    app.els.confirmationModal.style.display = 'flex';
+                    app.els.confirmationModal.classList.add('active');
 
                     const yesHandler = () => {
-                        app.els.confirmationModal.style.display = 'none';
+                        app.els.confirmationModal.classList.remove('active');
                         resolve(true);
                         cleanup();
                     };
 
                     const noHandler = () => {
-                        app.els.confirmationModal.style.display = 'none';
+                        app.els.confirmationModal.classList.remove('active');
                         resolve(false);
                         cleanup();
                     };
@@ -361,6 +388,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             },
 
+            async handleModelSelection(event) {
+                const selectedOption = event.currentTarget;
+                const provider = selectedOption.dataset.provider;
+
+                app.els.modelOptions.forEach(opt => opt.classList.remove('active'));
+                selectedOption.classList.add('active');
+
+                try {
+                    const result = await app.api.setModelProvider(provider);
+                    if (result.success) {
+                        app.ui.showToast(`Model provider switched to ${provider}.`, 'success');
+                    } else {
+                        app.ui.showToast(result.error || 'Failed to switch model.', 'error');
+                    }
+                } catch (error) {
+                    app.ui.showToast('An error occurred while switching models.', 'error');
+                }
+            },
+
             async handleDeleteAllDocuments() {
                 const confirmed = await app.ui.showConfirmation('Are you sure you want to delete ALL documents? This action cannot be undone.');
                 if (confirmed) {
@@ -378,6 +424,21 @@ document.addEventListener('DOMContentLoaded', () => {
         async refreshDocuments() {
             const documents = await app.api.getDocuments();
             app.ui.renderDocuments(documents);
+        },
+
+        async loadCurrentModel() {
+            try {
+                const result = await app.api.getCurrentModel();
+                if (result.provider) {
+                    app.els.modelOptions.forEach(opt => opt.classList.remove('active'));
+                    const activeOption = document.querySelector(`[data-provider="${result.provider}"]`);
+                    if (activeOption) {
+                        activeOption.classList.add('active');
+                    }
+                }
+            } catch (error) {
+                console.log('Could not load current model provider');
+            }
         },
 
         // UI Animations
@@ -419,12 +480,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 app.els.documentsGrid.addEventListener('click', this.handlers.handleDeleteDocument);
             }
             app.els.chatMessages.addEventListener('click', this.handlers.handleMessageActions);
+            app.els.modelOptions.forEach(option => option.addEventListener('click', this.handlers.handleModelSelection));
 
             // Initial state
-            app.ui.switchView('chat');
+            const initialView = document.body.dataset.initialView || 'chat';
+            console.log('Initial view:', initialView); // Debug log
+            app.ui.switchView(initialView);
             app.animations.animateSuggestionCards(); // Animate cards on load
-            const documents = await this.api.getDocuments();
-            this.ui.renderDocuments(documents);
         },
     };
 

@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/pro-style.css') }}">
 </head>
-<body>
+<body data-initial-view="{{ initial_view|default('chat') }}">
     <div class="container">
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -19,7 +19,6 @@
                 <ul>
                     <li><a href="#" data-view="chat" class="active"><i class="fas fa-plus"></i> New chat</a></li>
                     <li><a href="#" data-view="documents"><i class="fas fa-folder"></i> Documents</a></li>
-                    <li><a href="#" data-view="settings"><i class="fas fa-cog"></i> Settings</a></li>
                 </ul>
             </nav>
         </aside>
@@ -114,13 +113,36 @@
                     </div>
                 </div>
             </section>
+
+            <section class="settings-page">
+                <div class="settings-header">
+                    <h2>Settings</h2>
+                    <p>Customize your AI assistant's behavior</p>
+                </div>
+                <div class="settings-grid">
+                    <div class="settings-card">
+                        <h3>Model Provider</h3>
+                        <p>Choose the AI model provider for generating responses.</p>
+                        <div class="model-selection">
+                            <div class="model-option active" data-provider="ollama">
+                                <i class="fas fa-box-open"></i>
+                                <span>Ollama</span>
+                            </div>
+                            <div class="model-option" data-provider="openai">
+                                <i class="fas fa-brain"></i>
+                                <span>OpenAI</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </main>
     </div>
     <script src="{{ url_for('static', filename='js/pro-main.js') }}"></script>
 
     <div id="toast-container"></div>
 
-    <div id="confirmation-modal" class="modal-overlay" style="display: none;">
+    <div id="confirmation-modal" class="modal">
         <div class="modal-content">
             <p id="confirmation-message"></p>
             <div class="modal-actions">
@@ -134,7 +156,7 @@
     <input type="file" id="file-input" style="display: none;" accept=".pdf" multiple>
 
     <!-- Upload Progress Modal -->
-    <div id="upload-modal" class="modal-overlay" style="display: none;">
+    <div id="upload-modal" class="modal">
         <div class="modal-content upload-modal">
             <div class="modal-header">
                 <h2>Processing Document</h2>
