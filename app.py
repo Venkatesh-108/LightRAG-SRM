@@ -107,6 +107,10 @@ def upload_file():
         os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
         
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+
+        # Check for duplicate filename
+        if os.path.exists(file_path):
+            return jsonify({'error': f'Document "{filename}" already exists.'}), 409
         
         # Check file size (optional - you can set a limit)
         file.seek(0, os.SEEK_END)

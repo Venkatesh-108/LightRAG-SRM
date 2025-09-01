@@ -378,24 +378,33 @@ document.addEventListener('DOMContentLoaded', () => {
                                 app.ui.updateUploadProgress((e.loaded / e.total) * 100);
                             }
                         },
-                        (status, response) => { // Completion
+                        (status, responseText) => { // Completion
                             const endTime = Date.now();
                             const actualTime = ((endTime - startTime) / 1000).toFixed(1);
-                            
-                            // Store the actual indexing time
+
+                            let response;
+                            try {
+                                response = JSON.parse(responseText);
+                            } catch (e) {
+                                response = { error: 'An unexpected error occurred.' };
+                            }
+
                             if (status === 200) {
                                 localStorage.setItem(`indexing-time-${file.name}`, actualTime);
                             }
-                            
+
                             setTimeout(() => {
                                 app.ui.hideUploadModal();
                                 if (status === 200) {
-                                    // Extract success message with timing from response
-                                    const message = response.success || 'Document uploaded and indexed successfully!';
+                                    const message = response.success || 'Document uploaded successfully!';
                                     app.ui.showToast(message, 'success');
                                     app.refreshDocuments();
-                                } else {
-                                    app.ui.showToast('Upload failed. Please try again.', 'error');
+                                } else if (status === 409) { // Duplicate file
+                                    const message = response.error || 'This document already exists.';
+                                    app.ui.showToast(message, 'warning');
+                                } else { // Other errors
+                                    const message = response.error || 'Upload failed. Please try again.';
+                                    app.ui.showToast(message, 'error');
                                 }
                             }, 2000); // Show completion state for 2 seconds
                         }
