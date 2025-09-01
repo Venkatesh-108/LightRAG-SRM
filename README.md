@@ -8,6 +8,7 @@ This is a Retrieval-Augmented Generation (RAG) application built with Python, Fl
 - **Hierarchical Document Processing**: Supports document structure with headings, sections, and tables.
 - **Enhanced Accuracy**: Advanced retrieval with re-ranking and precise source citations.
 - **Single Source Citations**: Provides one most relevant source per response for clarity.
+- **Document Limits**: 100MB file size, 500 pages max for optimal performance.
 - **Dual LLM Support**: Switch between using a local Ollama model or the OpenAI API.
 - **Simple Chat Interface**: Ask questions about your documents in a clean, intuitive chat UI.
 - **Document Library**: View and manage your uploaded documents.
@@ -105,8 +106,8 @@ python diagnose_system.py
 The application now includes:
 - Automatic memory monitoring
 - Batch processing for large documents
-- No file size limits - process any size
-- No page limits - process any number of pages
+- File size limits (100MB max) - optimal for most documents
+- Page limits (500 pages max) - handles large documents
 - Timeout protection (5 minutes)
 
 #### 4. Check System Health

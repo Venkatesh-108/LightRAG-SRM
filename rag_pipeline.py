@@ -533,22 +533,21 @@ class RAGPipeline:
         # Organize context by document structure
         structured_context = self._organize_context(context_docs)
 
-        prompt = f"""Please provide a comprehensive and accurate answer to the following question based on the provided document context.
+        prompt = f"""Please provide a concise and accurate answer to the following question based on the provided document context.
 
-**Important Guidelines:**
+**Guidelines:**
 - Answer based ONLY on the provided context
-- If the information is not in the context, say "This information is not available in the provided documents"
-- Structure your answer clearly with headings and bullet points
-- Include specific details, page numbers, and section references when available
-- Be precise and avoid generalizations
-- Use markdown formatting for better readability
+- If information is not available, say "This information is not available in the provided documents"
+- Be specific and include key details from the source
+- Keep the answer focused and relevant
+- Use clear, direct language
 
 **Context:**
 {structured_context}
 
 **Question:** {query}
 
-**Answer (be specific and accurate):**"""
+**Answer:**"""
 
         if self.model_provider == 'openai':
             try:
@@ -587,13 +586,13 @@ class RAGPipeline:
                 yield f"Error with Ollama: {str(e)}. Make sure Ollama is running and the model '{Config.OLLAMA_MODEL}' is available.", None
 
     def _organize_context(self, context_docs: List[Document]) -> str:
-        """Organize context documents by source and structure."""
+        """Organize context documents by source and structure, focusing on most relevant content."""
         if not context_docs:
             return "No context available."
 
         organized_parts = []
 
-        # Group by filename
+        # Group by filename and find the most relevant document per file
         docs_by_file = {}
         for doc in context_docs:
             filename = doc.metadata.get('filename', 'Unknown')
@@ -601,18 +600,17 @@ class RAGPipeline:
                 docs_by_file[filename] = []
             docs_by_file[filename].append(doc)
 
-        # Format each document's content
+        # For each file, select the most relevant document (first one after ranking)
         for filename, docs in docs_by_file.items():
-            organized_parts.append(f"## From {filename}:")
+            if docs:  # Only process if we have documents
+                # Sort by chunk number to get sequential content
+                docs_sorted = sorted(docs, key=lambda x: x.metadata.get('chunk', 0))
 
-            for i, doc in enumerate(docs):
+                # Use the first (most relevant) document from this file
+                doc = docs_sorted[0]
                 page = doc.metadata.get('page', 0) + 1
-                chunk = doc.metadata.get('chunk', 0)
 
-                # Add page reference
-                organized_parts.append(f"### Page {page}, Section {chunk + 1}:")
-
-                # Clean up the content for better readability
+                organized_parts.append(f"## From {filename} (Page {page}):")
                 content = doc.content.strip()
                 organized_parts.append(content)
                 organized_parts.append("")  # Empty line for spacing
@@ -667,21 +665,16 @@ class RAGPipeline:
         else:
             model_name = Config.OLLAMA_MODEL
 
-        # Generate and yield sources
-        sources = []
-        for doc in relevant_docs:
-            source_info = {
-                'filename': doc.metadata.get('filename', 'Unknown'),
-                'page': doc.metadata.get('page', -1) + 1
-            }
-            if source_info not in sources:
-                sources.append(source_info)
+        # Generate and yield only the most relevant source
+        if relevant_docs:
+            # Find the most relevant document (first in re-ranked list)
+            primary_doc = relevant_docs[0]
+            filename = primary_doc.metadata.get('filename', 'Unknown')
+            page = primary_doc.metadata.get('page', -1) + 1
 
-        if sources:
-            source_text = "\n\n---\n**Sources:**\n"
-            for src in sources:
-                encoded_filename = urllib.parse.quote(src['filename'])
-                source_text += f"- [{src['filename']}](/documents/{encoded_filename}#page={src['page']}) (Page {src['page']})\n"
+            # Create single source citation
+            encoded_filename = urllib.parse.quote(filename)
+            source_text = f"\n\n---\n**Source:** [{filename}](/documents/{encoded_filename}#page={page}) (Page {page})"
             yield source_text
 
         performance_data = (
