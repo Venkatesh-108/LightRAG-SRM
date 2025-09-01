@@ -185,24 +185,39 @@ document.addEventListener('DOMContentLoaded', () => {
                         const item = document.createElement('div');
                         item.classList.add('document-item');
 
-                        const indexingTime = localStorage.getItem(`indexing-time-${doc}`) || '~5.0';
+                        // Handle both old format (string) and new format (object)
+                        const filename = typeof doc === 'string' ? doc : doc.filename;
+                        const fileSize = typeof doc === 'object' ? doc.size : 0;
+                        const pageCount = typeof doc === 'object' ? doc.pages : 0;
+
+                        // Format file size
+                        const formatFileSize = (bytes) => {
+                            if (bytes === 0) return '0 B';
+                            const k = 1024;
+                            const sizes = ['B', 'KB', 'MB', 'GB'];
+                            const i = Math.floor(Math.log(bytes) / Math.log(k));
+                            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+                        };
+
+                        const formattedSize = formatFileSize(fileSize);
+                        const pageText = pageCount === 1 ? '1 page' : `${pageCount} pages`;
 
                         item.innerHTML = `
                             <div class="document-info">
                                 <div class="file-icon"><i class="fas fa-file-pdf"></i></div>
                                 <div class="file-details">
-                                    <div class="document-name">${doc}</div>
+                                    <div class="document-name">${filename}</div>
                                     <div class="metadata">
-                                        <span><i class="fas fa-calendar"></i> Added today</span>
-                                        <span><i class="fas fa-check-circle"></i> Indexed in ${indexingTime}s</span>
+                                        <span><i class="fas fa-hdd"></i> ${formattedSize}</span>
+                                        <span><i class="fas fa-file-alt"></i> ${pageText}</span>
                                     </div>
                                 </div>
                             </div>
                             <div class="document-actions">
-                                <button class="action-btn chat-doc-btn" data-filename="${doc}" title="Chat with document">
+                                <button class="action-btn chat-doc-btn" data-filename="${filename}" title="Chat with document">
                                     <i class="fas fa-comments"></i>
                                 </button>
-                                <button class="action-btn delete" data-filename="${doc}" title="Delete document">
+                                <button class="action-btn delete" data-filename="${filename}" title="Delete document">
                                     <i class="fas fa-trash-alt"></i>
                                 </button>
                             </div>

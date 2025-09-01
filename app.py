@@ -197,7 +197,25 @@ def get_documents():
                     file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                     # Check if file still exists and is readable
                     if os.path.exists(file_path) and os.access(file_path, os.R_OK):
-                        documents.append(filename)
+                        # Get file size
+                        file_size = os.path.getsize(file_path)
+                        
+                        # Get page count
+                        page_count = 0
+                        try:
+                            import PyPDF2
+                            with open(file_path, 'rb') as file:
+                                pdf_reader = PyPDF2.PdfReader(file)
+                                page_count = len(pdf_reader.pages)
+                        except Exception as e:
+                            print(f"Warning: Could not get page count for {filename}: {e}")
+                            page_count = 0
+                        
+                        documents.append({
+                            'filename': filename,
+                            'size': file_size,
+                            'pages': page_count
+                        })
         except Exception as e:
             return jsonify({'error': f'Failed to list documents: {str(e)}'}), 500
         
