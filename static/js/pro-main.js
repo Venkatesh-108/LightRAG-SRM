@@ -36,6 +36,13 @@ document.addEventListener('DOMContentLoaded', () => {
             suggestionCards: document.querySelectorAll('.suggestion-card'),
             welcomeContent: document.querySelector('.welcome-content'),
             modelOptions: document.querySelectorAll('.model-option'),
+            docChatHeader: document.getElementById('doc-chat-header'),
+            docChatFilename: document.getElementById('doc-chat-filename'),
+            exitDocChat: document.getElementById('exit-doc-chat'),
+        },
+
+        state: {
+            activeDocument: null,
         },
 
         // API Communication
@@ -44,11 +51,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 const response = await fetch('/documents');
                 return response.json();
             },
-            async sendQuery(query) {
+            async sendQuery(query, filename = null) {
+                const body = { query };
+                if (filename) {
+                    body.filename = filename;
+                }
                 const response = await fetch('/query', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query }),
+                    body: JSON.stringify(body),
                 });
                 return response;
             },
@@ -87,6 +98,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // UI Management
         ui: {
+            showDocChatHeader(filename) {
+                app.els.docChatFilename.textContent = filename;
+                app.els.docChatHeader.classList.add('active');
+            },
+
+            hideDocChatHeader() {
+                app.els.docChatHeader.classList.remove('active');
+                app.els.docChatFilename.textContent = '';
+            },
             hideAllViews() {
                 app.els.chatInterface.style.display = 'none';
                 app.els.documentsPage.style.display = 'none';
@@ -117,7 +137,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
             },
-            createMessageElement(text, type) {
+            createMessageElement(text, type, query = '') {
                 const messageElement = document.createElement('div');
                 messageElement.classList.add('message', type, 'message-entry');
 
@@ -128,6 +148,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     actions = `
                         <div class="message-actions">
                             <button class="action-btn copy-btn" title="Copy text"><i class="fas fa-copy"></i></button>
+                            <button class="action-btn retry-btn" title="Retry" data-query="${query}"><i class="fas fa-sync-alt"></i></button>
                         </div>
                     `;
                 }
@@ -312,12 +333,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 app.els.chatInput.value = '';
                 app.els.chatMessages.scrollTop = app.els.chatMessages.scrollHeight;
 
-                const botMessageElement = app.ui.createMessageElement('', 'bot');
+                const botMessageElement = app.ui.createMessageElement('', 'bot', messageText);
                 const botTextElement = botMessageElement.querySelector('.text');
                 app.els.chatMessages.appendChild(botMessageElement);
 
                 try {
-                    const response = await app.api.sendQuery(messageText);
+                    const response = await app.api.sendQuery(messageText, app.state.activeDocument);
                     if (!response.ok) {
                         throw new Error(`HTTP error! status: ${response.status}`);
                     }
@@ -400,14 +421,24 @@ document.addEventListener('DOMContentLoaded', () => {
             },
             handleMessageActions(event) {
                 const copyBtn = event.target.closest('.copy-btn');
-                if (!copyBtn) return;
+                if (copyBtn) {
+                    const messageText = copyBtn.closest('.message-content').querySelector('.text').textContent;
+                    navigator.clipboard.writeText(messageText).then(() => {
+                        app.ui.showToast('Copied to clipboard!', 'success');
+                    }).catch(err => {
+                        app.ui.showToast('Failed to copy text.', 'error');
+                    });
+                    return;
+                }
 
-                const messageText = copyBtn.closest('.message-content').querySelector('.text').textContent;
-                navigator.clipboard.writeText(messageText).then(() => {
-                    app.ui.showToast('Copied to clipboard!', 'success');
-                }).catch(err => {
-                    app.ui.showToast('Failed to copy text.', 'error');
-                });
+                const retryBtn = event.target.closest('.retry-btn');
+                if (retryBtn) {
+                    const query = retryBtn.dataset.query;
+                    if (query) {
+                        app.els.chatInput.value = query;
+                        app.handlers.handleSendMessage();
+                    }
+                }
             },
 
             async handleModelSelection(event) {
@@ -447,6 +478,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     const docName = docNameElement.textContent;
                     window.open(`/documents/${docName}`, '_blank');
                 }
+            },
+
+            handleChatWithDocument(event) {
+                const chatBtn = event.target.closest('.chat-doc-btn');
+                if (!chatBtn) return;
+
+                const filename = chatBtn.dataset.filename;
+                app.state.activeDocument = filename;
+                app.ui.showDocChatHeader(filename);
+                app.ui.switchView('chat');
+                app.els.chatInput.focus();
+                app.els.chatInput.placeholder = `Ask a question about ${filename}...`;
             },
             handleRefreshDocuments(event) {
                 const refreshButton = app.els.refreshDocs;
@@ -513,8 +556,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 app.els.modalClose.addEventListener('click', () => app.ui.hideUploadModal());
             }
             if (app.els.documentsGrid) {
-                app.els.documentsGrid.addEventListener('click', this.handlers.handleDeleteDocument);
-                app.els.documentsGrid.addEventListener('click', this.handlers.handleOpenDocument);
+                app.els.documentsGrid.addEventListener('click', (e) => {
+                    this.handlers.handleDeleteDocument(e);
+                    this.handlers.handleOpenDocument(e);
+                    this.handlers.handleChatWithDocument(e);
+                });
+            }
+            if (app.els.exitDocChat) {
+                app.els.exitDocChat.addEventListener('click', () => {
+                    app.state.activeDocument = null;
+                    app.ui.hideDocChatHeader();
+                    app.els.chatInput.placeholder = 'Send a message...';
+                    app.ui.showToast('Exited document chat.', 'info');
+                });
             }
             app.els.chatMessages.addEventListener('click', this.handlers.handleMessageActions);
             app.els.modelOptions.forEach(option => option.addEventListener('click', this.handlers.handleModelSelection));

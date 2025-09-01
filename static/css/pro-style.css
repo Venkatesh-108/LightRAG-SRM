@@ -98,7 +98,7 @@ body {
 }
 
 .sidebar-header p {
-    font-size: 12px;
+    font-size: 0.9rem;
     color: var(--text-sidebar);
     margin: 0;
     opacity: 0.8;
@@ -208,6 +208,47 @@ body {
     display: flex;
     flex-direction: column;
     gap: 24px;
+}
+
+.doc-chat-header {
+    display: none; /* Hidden by default */
+    align-items: center;
+    justify-content: space-between;
+    align-self: flex-end; /* Align to the right */
+    width: auto; /* Fit content */
+    padding: 6px 12px;
+    background-color: rgba(45, 212, 191, 0.1); /* Light green */
+    border: 1px solid rgba(45, 212, 191, 0.2);
+    border-radius: 20px; /* Pill shape */
+    margin: 8px 8px 12px 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+.doc-chat-header.active {
+    display: flex; /* Show when active */
+}
+
+.doc-chat-header strong {
+    font-weight: 500;
+    color: #2dd4bf; /* Teal color for the filename */
+    margin-left: 4px;
+}
+
+.exit-doc-chat-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.9rem;
+    margin-left: 8px;
+    padding: 2px;
+    transition: color 0.2s ease;
+}
+
+.exit-doc-chat-btn:hover {
+    color: #2dd4bf;
 }
 
 /* Welcome State */
@@ -327,6 +368,7 @@ body {
     line-height: 1.6;
     text-align: left;
     word-wrap: break-word;
+    font-size: 0.9rem;
 }
 
 .message .text ul,

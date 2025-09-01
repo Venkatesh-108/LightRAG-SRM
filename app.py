@@ -10,23 +10,43 @@ from utils import allowed_file
 app = Flask(__name__, template_folder='templates')
 app.config.from_object(Config)
 
-# A simple in-memory cache for RAG pipelines
+# In-memory cache for RAG pipelines and initialization errors
 _rag_pipelines = {}
+_initialization_errors = {}
+
+def initialize_pipelines():
+    """Pre-initializes RAG pipelines for all supported providers at startup."""
+    supported_providers = ['ollama', 'openai']
+    print("Pre-initializing RAG pipelines...")
+    for provider in supported_providers:
+        try:
+            print(f"Initializing pipeline for {provider}...")
+            pipeline = RAGPipeline(model_provider=provider)
+            _rag_pipelines[provider] = pipeline
+            print(f"Successfully initialized pipeline for {provider}.")
+        except ValueError as e:
+            error_message = str(e)
+            _initialization_errors[provider] = error_message
+            print(f"Failed to initialize pipeline for {provider}: {error_message}")
+
+# Initialize pipelines when the app module is loaded
+initialize_pipelines()
 
 def get_rag_pipeline():
-    model_provider = session.get('model_provider', 'ollama')
+    """Retrieves a pre-initialized RAG pipeline based on the user's session."""
+    model_provider = session.get('model_provider', Config.MODEL_PROVIDER)
     
-    # Check if the pipeline for the current model is already cached
-    if model_provider in _rag_pipelines:
-        return _rag_pipelines[model_provider], None
-
-    # If not, create a new one and cache it
-    try:
-        pipeline = RAGPipeline(model_provider=model_provider)
-        _rag_pipelines[model_provider] = pipeline
+    # Check for initialization errors first
+    if model_provider in _initialization_errors:
+        return None, _initialization_errors[model_provider]
+        
+    # Retrieve the pre-loaded pipeline
+    pipeline = _rag_pipelines.get(model_provider)
+    if pipeline:
         return pipeline, None
-    except ValueError as e:
-        return None, str(e)
+    
+    # Fallback message if a pipeline is missing (should not happen with pre-initialization)
+    return None, f"Pipeline for '{model_provider}' is not available or failed to initialize."
 
 @app.route('/')
 def index():
@@ -176,6 +196,7 @@ def serve_document(filename):
 def query():
     data = request.get_json()
     query_text = data.get('query')
+    filename = data.get('filename')  # Get filename from request
     if not query_text:
         return jsonify({'error': 'Query text is required'}), 400
 
@@ -185,7 +206,8 @@ def query():
 
     def generate():
         try:
-            for chunk in rag_pipeline.query(query_text):
+            # Pass filename to the query method
+            for chunk in rag_pipeline.query(query_text, filename=filename):
                 yield chunk
         except Exception as e:
             # Log the error and yield a user-friendly message
@@ -254,4 +276,6 @@ def delete_all_files():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
+    # In debug mode, Flask's reloader might run initialization twice.
+    # The logic is safe, but this is a note for awareness.
     app.run(debug=True)

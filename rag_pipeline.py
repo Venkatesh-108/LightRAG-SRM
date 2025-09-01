@@ -252,7 +252,7 @@ class RAGPipeline:
         indexing_time = end_time - start_time
         return indexing_time
 
-    def _retrieve_documents(self, query: str, top_k: int = 3) -> List[Document]:
+    def _retrieve_documents(self, query: str, top_k: int = 3, filename: str = None) -> List[Document]:
         """Retrieve relevant documents for the query."""
         if self.index is None or len(self.documents) == 0:
             return []
@@ -261,11 +261,21 @@ class RAGPipeline:
         distances, indices = self.index.search(query_embedding.astype('float32'), top_k)
         
         retrieved_docs = []
-        for idx in indices[0]:
-            if idx < len(self.documents):
-                retrieved_docs.append(self.documents[idx])
-        
-        return retrieved_docs
+        if not filename:
+            for idx in indices[0]:
+                if idx < len(self.documents):
+                    retrieved_docs.append(self.documents[idx])
+            return retrieved_docs
+        else:
+            # Filter by filename
+            for idx in indices[0]:
+                if len(retrieved_docs) >= top_k:
+                    break
+                if idx < len(self.documents):
+                    doc = self.documents[idx]
+                    if doc.metadata.get('filename') == filename:
+                        retrieved_docs.append(doc)
+            return retrieved_docs
 
     def _generate_response(self, query: str, context_docs: List[Document]):
         """Generate response using the selected model provider, yielding chunks for streaming."""
@@ -293,7 +303,7 @@ Answer (in Markdown):"""
                 response_stream = client.chat.completions.create(
                     model="gpt-3.5-turbo",
                     messages=[
-                        {"role": "system", "content": "You are a helpful assistant that answers questions based on the provided context. Please format your responses in Markdown."},
+                        {"role": "system", "content": "You are an expert technical assistant. Your task is to answer the user's query based *only* on the provided context. Do not use any external knowledge. If the answer is not in the context, state that clearly. Structure your answer in a clear and easy-to-read format. Use markdown, including lists, bolding, and code blocks where appropriate. Be direct and avoid conversational filler or introductory/summary sentences."},
                         {"role": "user", "content": prompt}
                     ],
                     stream=True
@@ -310,7 +320,7 @@ Answer (in Markdown):"""
                 response_stream = ollama.chat(
                     model=Config.OLLAMA_MODEL,
                     messages=[
-                        {"role": "system", "content": "You are a helpful assistant that answers questions based on the provided context. Please format your responses in Markdown."},
+                        {"role": "system", "content": "You are an expert technical assistant. Your task is to answer the user's query based *only* on the provided context. Do not use any external knowledge. If the answer is not in the context, state that clearly. Structure your answer in a clear and easy-to-read format. Use markdown, including lists, bolding, and code blocks where appropriate. Be direct and avoid conversational filler or introductory/summary sentences."},
                         {"role": "user", "content": prompt}
                     ],
                     stream=True
@@ -322,7 +332,7 @@ Answer (in Markdown):"""
             except Exception as e:
                 yield f"Error with Ollama: {str(e)}. Make sure Ollama is running and the model '{Config.OLLAMA_MODEL}' is available."
 
-    def query(self, query_text: str):
+    def query(self, query_text: str, filename: str = None):
         """Performs a RAG query, yielding the response and performance metrics."""
         if self.index is None or len(self.documents) == 0:
             yield "No documents have been indexed yet. Please upload some PDF documents first."
@@ -330,7 +340,7 @@ Answer (in Markdown):"""
 
         # 1. Retrieve documents
         retrieval_start_time = time.time()
-        relevant_docs = self._retrieve_documents(query_text)
+        relevant_docs = self._retrieve_documents(query_text, filename=filename)
         retrieval_end_time = time.time()
         retrieval_time = retrieval_end_time - retrieval_start_time
 
@@ -340,15 +350,37 @@ Answer (in Markdown):"""
 
         # 2. Generate response and stream it
         generation_start_time = time.time()
+        first_token_time = None
+        ttft = 0
         full_response = ""
-        for chunk in self._generate_response(query_text, relevant_docs):
+        
+        response_generator = self._generate_response(query_text, relevant_docs)
+        
+        for chunk in response_generator:
+            if first_token_time is None:
+                first_token_time = time.time()
+                ttft = first_token_time - generation_start_time
+            
             full_response += chunk
             yield chunk
+            
         generation_end_time = time.time()
-        generation_time = generation_end_time - generation_start_time
+        # Ensure generation_time is not zero to avoid division errors
+        generation_time = (generation_end_time - generation_start_time) or 1e-6
 
-        # 3. Stream performance data
-        performance_data = f"\n\n---\n*Retrieval: {retrieval_time:.2f}s, Generation: {generation_time:.2f}s*"
+        # 3. Calculate tokens per second (approximating 1 token ~= 4 chars)
+        total_chars = len(full_response)
+        estimated_tokens = total_chars / 4
+        tokens_per_sec = estimated_tokens / generation_time
+
+        # 4. Stream performance data
+        performance_data = (
+            f"\n\n---\n"
+            f"*TTFT: {ttft:.2f}s | "
+            f"Tokens/sec: {tokens_per_sec:.2f} | "
+            f"Retrieval: {retrieval_time:.2f}s | "
+            f"Generation: {generation_time:.2f}s*"
+        )
         yield performance_data
 
     def delete_document(self, filename: str) -> bool:
