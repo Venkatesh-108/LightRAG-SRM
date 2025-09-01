@@ -68,6 +68,7 @@ With the virtual environment activated, run the `app.py` file to start the Flask
 
 ```bash
 python app.py
+.\venv\Scripts\activate && python app.py
 ```
 
 The application will be available at `http://127.0.0.1:5000`.
@@ -77,3 +78,53 @@ The application will be available at `http://127.0.0.1:5000`.
 1.  **Upload Documents**: Navigate to the **Documents** tab and click **Upload PDF**.
 2.  **Select a Model**: Use the dropdown menu in the **Documents** view to switch between `Ollama` and `OpenAI`.
 3.  **Start a Chat**: Go to the **Chats** tab and click **+ New Chat** to ask general questions, or click **Chat about this document** on a document card to focus the conversation.
+
+## Troubleshooting
+
+### System Crashes During Document Upload
+
+If your system crashes or restarts when uploading documents, follow these steps:
+
+#### 1. Run System Diagnostic
+Before uploading, run the diagnostic script to check your system:
+```bash
+python diagnose_system.py
+```
+
+#### 2. Common Solutions
+- **Close other applications** to free up memory
+- **Restart your computer** to clear memory
+- **Use smaller PDF files** (<10MB) for testing
+- **Ensure you have at least 2GB of free RAM**
+- **Check available disk space** (>1GB free)
+
+#### 3. Memory Management
+The application now includes:
+- Automatic memory monitoring
+- Batch processing for large documents
+- File size limits (100MB max)
+- Page limits (500 pages max)
+- Timeout protection (5 minutes)
+
+#### 4. Check System Health
+Visit `http://127.0.0.1:5000/system_health` in your browser to see real-time system resource information.
+
+#### 5. PDF File Issues
+If you encounter PDF processing errors:
+
+**Validate PDF files:**
+```bash
+python pdf_validator.py documents/your_file.pdf
+```
+
+**Common PDF issues and solutions:**
+- **"EOF marker not found"**: PDF is corrupted - re-download or re-save the file
+- **"PDF is encrypted"**: Remove password protection or use a different file
+- **"No readable text found"**: PDF may be image-based - use OCR tools first
+- **"File too large"**: Reduce file size or split into smaller documents
+
+#### 6. If Problems Persist
+- Try uploading smaller documents first
+- Check Windows Event Viewer for system errors
+- Update your graphics drivers
+- Consider using the OpenAI model instead of Ollama for less local resource usage

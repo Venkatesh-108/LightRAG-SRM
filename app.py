@@ -1,11 +1,12 @@
 import os
+import threading
+import time
 from flask import Flask, request, jsonify, render_template, send_from_directory, session, Response, stream_with_context
 from werkzeug.utils import secure_filename
-import os
 from rag_pipeline import RAGPipeline
 from config import Config
 import json
-from utils import allowed_file
+from utils import allowed_file, check_system_resources, get_memory_info
 
 app = Flask(__name__, template_folder='templates')
 app.config.from_object(Config)
@@ -14,20 +15,53 @@ app.config.from_object(Config)
 _rag_pipelines = {}
 _initialization_errors = {}
 
+def run_with_timeout(func, args, timeout_seconds=300):
+    """Run a function with a timeout using threading (Windows compatible)."""
+    result = [None]
+    exception = [None]
+    
+    def target():
+        try:
+            result[0] = func(*args)
+        except Exception as e:
+            exception[0] = e
+    
+    thread = threading.Thread(target=target)
+    thread.daemon = True
+    thread.start()
+    thread.join(timeout_seconds)
+    
+    if thread.is_alive():
+        # Thread is still running, timeout occurred
+        return None, TimeoutError("Operation timed out")
+    
+    if exception[0]:
+        return None, exception[0]
+    
+    return result[0], None
+
 def initialize_pipelines():
     """Pre-initializes RAG pipelines for all supported providers at startup."""
-    supported_providers = ['ollama', 'openai']
-    print("Pre-initializing RAG pipelines...")
-    for provider in supported_providers:
-        try:
-            print(f"Initializing pipeline for {provider}...")
-            pipeline = RAGPipeline(model_provider=provider)
-            _rag_pipelines[provider] = pipeline
-            print(f"Successfully initialized pipeline for {provider}.")
-        except ValueError as e:
-            error_message = str(e)
-            _initialization_errors[provider] = error_message
-            print(f"Failed to initialize pipeline for {provider}: {error_message}")
+    # Only initialize the default provider to avoid conflicts
+    default_provider = Config.MODEL_PROVIDER
+    print(f"Pre-initializing RAG pipeline for {default_provider}...")
+    
+    try:
+        print(f"Initializing pipeline for {default_provider}...")
+        pipeline = RAGPipeline(model_provider=default_provider)
+        _rag_pipelines[default_provider] = pipeline
+        print(f"Successfully initialized pipeline for {default_provider}.")
+        print(f"DEBUG: Pipeline {default_provider} stored in _rag_pipelines: {default_provider in _rag_pipelines}")
+    except ValueError as e:
+        error_message = str(e)
+        _initialization_errors[default_provider] = error_message
+        print(f"Failed to initialize pipeline for {default_provider}: {error_message}")
+    except Exception as e:
+        error_message = f"Unexpected error initializing {default_provider}: {str(e)}"
+        _initialization_errors[default_provider] = error_message
+        print(f"Unexpected error initializing {default_provider}: {error_message}")
+    
+    print(f"DEBUG: Final pipeline state - Available: {list(_rag_pipelines.keys())}, Errors: {_initialization_errors}")
 
 # Initialize pipelines when the app module is loaded
 initialize_pipelines()
@@ -36,17 +70,34 @@ def get_rag_pipeline():
     """Retrieves a pre-initialized RAG pipeline based on the user's session."""
     model_provider = session.get('model_provider', Config.MODEL_PROVIDER)
     
+    # Debug logging
+    print(f"DEBUG: Requested model provider: {model_provider}")
+    print(f"DEBUG: Available pipelines: {list(_rag_pipelines.keys())}")
+    print(f"DEBUG: Initialization errors: {_initialization_errors}")
+    
     # Check for initialization errors first
     if model_provider in _initialization_errors:
+        print(f"DEBUG: Found initialization error for {model_provider}: {_initialization_errors[model_provider]}")
         return None, _initialization_errors[model_provider]
         
     # Retrieve the pre-loaded pipeline
     pipeline = _rag_pipelines.get(model_provider)
     if pipeline:
+        print(f"DEBUG: Successfully retrieved pipeline for {model_provider}")
         return pipeline, None
     
-    # Fallback message if a pipeline is missing (should not happen with pre-initialization)
-    return None, f"Pipeline for '{model_provider}' is not available or failed to initialize."
+    # Try to initialize the pipeline on-demand if it's not available
+    print(f"DEBUG: Pipeline not found for {model_provider}, attempting to initialize...")
+    try:
+        pipeline = RAGPipeline(model_provider=model_provider)
+        _rag_pipelines[model_provider] = pipeline
+        print(f"DEBUG: Successfully initialized pipeline for {model_provider}")
+        return pipeline, None
+    except Exception as e:
+        error_message = f"Failed to initialize pipeline for {model_provider}: {str(e)}"
+        _initialization_errors[model_provider] = error_message
+        print(f"DEBUG: {error_message}")
+        return None, error_message
 
 @app.route('/')
 def index():
@@ -126,18 +177,29 @@ def upload_file():
         if os.path.exists(file_path):
             return jsonify({'error': f'Document "{filename}" already exists.'}), 409
         
-        # Check file size (optional - you can set a limit)
+        # Check file size
         file.seek(0, os.SEEK_END)
         file_size = file.tell()
         file.seek(0)  # Reset file pointer
         
-        # Set max file size to 50MB (adjust as needed)
-        max_size = 50 * 1024 * 1024  # 50MB in bytes
+        # Set max file size to 100MB (increased for large documents)
+        max_size = 100 * 1024 * 1024  # 100MB in bytes
         if file_size > max_size:
-            return jsonify({'error': f'File too large. Maximum size is {max_size // (1024*1024)}MB'}), 400
+            return jsonify({'error': f'File too large ({file_size / (1024*1024):.1f}MB). Maximum size is 100MB'}), 400
         
         if file_size == 0:
             return jsonify({'error': 'File is empty'}), 400
+        
+        # Check available memory before processing
+        try:
+            import psutil
+            memory = psutil.virtual_memory()
+            available_gb = memory.available / (1024**3)
+            if available_gb < 2.0:  # Less than 2GB available
+                return jsonify({'error': f'Insufficient memory available ({available_gb:.1f}GB). Please close other applications and try again.'}), 400
+        except ImportError:
+            # psutil not available, continue without memory check
+            pass
         
         # Save file
         try:
@@ -159,9 +221,31 @@ def upload_file():
                 pass
             return jsonify({'error': f'Pipeline initialization failed: {error}'}), 400
         
-        # Index the document
+        # Index the document with timeout protection
         try:
-            indexing_time = rag_pipeline.index_documents([file_path])
+            print(f"Starting automatic indexing of {filename}...")
+            result, error = run_with_timeout(rag_pipeline.index_documents, [[file_path]], timeout_seconds=300)
+            
+            if error:
+                if isinstance(error, TimeoutError):
+                    # Clean up saved file if processing times out
+                    try:
+                        os.remove(file_path)
+                    except:
+                        pass
+                    return jsonify({'error': 'Document processing timed out. The file may be too large or complex.'}), 408
+                else:
+                    # Clean up saved file if indexing fails
+                    try:
+                        os.remove(file_path)
+                    except:
+                        pass
+                    return jsonify({'error': f'Failed to index document: {str(error)}'}), 500
+            
+            indexing_time = result
+            print(f"✅ Successfully indexed {filename} in {indexing_time:.1f} seconds")
+            print(f"📚 Total documents in index: {len(rag_pipeline.documents)}")
+                
         except Exception as e:
             # Clean up saved file if indexing fails
             try:
@@ -308,6 +392,52 @@ def delete_all_files():
         # Clear the pipeline cache
         _rag_pipelines = {}
         return jsonify({'success': 'All documents deleted successfully.'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/system_health', methods=['GET'])
+def system_health():
+    """Check system resources and health."""
+    try:
+        resources = check_system_resources()
+        memory_info = get_memory_info()
+        
+        # Get indexing status
+        rag_pipeline, error = get_rag_pipeline()
+        indexing_status = {
+            'total_documents': len(rag_pipeline.documents) if rag_pipeline else 0,
+            'indexed_files': list(set([doc.metadata.get('filename', 'Unknown') for doc in (rag_pipeline.documents if rag_pipeline else [])])),
+            'pipeline_error': error
+        }
+        
+        return jsonify({
+            'resources': resources,
+            'memory': memory_info,
+            'indexing': indexing_status,
+            'status': 'healthy' if resources.get('all_ok', False) else 'warning'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'status': 'error'}), 500
+
+@app.route('/indexing_status', methods=['GET'])
+def indexing_status():
+    """Get current indexing status."""
+    try:
+        rag_pipeline, error = get_rag_pipeline()
+        if error:
+            return jsonify({'error': error}), 400
+        
+        # Count documents by filename
+        file_counts = {}
+        for doc in rag_pipeline.documents:
+            filename = doc.metadata.get('filename', 'Unknown')
+            file_counts[filename] = file_counts.get(filename, 0) + 1
+        
+        return jsonify({
+            'total_chunks': len(rag_pipeline.documents),
+            'indexed_files': file_counts,
+            'status': 'ready'
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

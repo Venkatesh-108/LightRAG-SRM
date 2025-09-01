@@ -2,13 +2,18 @@ import os
 import pickle
 import time
 import urllib.parse
+import gc
+import psutil
 from typing import List, Tuple
 import PyPDF2
-from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
 import openai
 import ollama
+
+# Disable transformers model scanning on Windows to prevent hanging
+os.environ['TRANSFORMERS_OFFLINE'] = '1'
+os.environ['HF_HUB_OFFLINE'] = '1'
 
 from config import Config
 
@@ -21,21 +26,47 @@ class RAGPipeline:
     def __init__(self, model_provider: str = 'ollama'):
         self.model_provider = model_provider
         self.vector_store_path = Config.VECTOR_STORE_PATH
-        self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
+        self.embedder = None  # Lazy load the embedder
         self.index = None
         self.documents = []
         self._initialize_pipeline()
+    
+    def _get_embedder(self):
+        """Lazy load the embedding model."""
+        if self.embedder is None:
+            print("Loading embedding model...")
+            from sentence_transformers import SentenceTransformer
+            self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
+            print("Embedding model loaded successfully")
+        return self.embedder
+
+    def _check_memory_usage(self):
+        """Check if system has enough available memory."""
+        memory = psutil.virtual_memory()
+        available_gb = memory.available / (1024**3)
+        if available_gb < 1.0:  # Less than 1GB available
+            raise ValueError(f"Insufficient memory available: {available_gb:.2f}GB. Please close other applications and try again.")
+        return available_gb
 
     def _initialize_pipeline(self):
         """Initializes the retriever and generator based on the model provider."""
+        # Check memory before loading
+        self._check_memory_usage()
+        
         # Load existing index if available
         index_path = os.path.join(self.vector_store_path, "index.faiss")
         docs_path = os.path.join(self.vector_store_path, "documents.pkl")
         
         if os.path.exists(index_path) and os.path.exists(docs_path):
-            self.index = faiss.read_index(index_path)
-            with open(docs_path, 'rb') as f:
-                self.documents = pickle.load(f)
+            try:
+                self.index = faiss.read_index(index_path)
+                with open(docs_path, 'rb') as f:
+                    self.documents = pickle.load(f)
+            except Exception as e:
+                print(f"Warning: Failed to load existing index: {e}")
+                # Clear corrupted data
+                self.index = None
+                self.documents = []
 
         # Validate model provider
         if self.model_provider == 'openai':
@@ -43,9 +74,12 @@ class RAGPipeline:
                 raise ValueError("OpenAI API key is not set. Please set it in the .env file.")
 
     def _load_pdf(self, file_path: str) -> List[str]:
-        """Load and extract text from PDF file."""
+        """Load and extract text from PDF file with memory checks."""
         texts = []
         try:
+            # Check memory before processing
+            self._check_memory_usage()
+            
             # Check if file exists
             if not os.path.exists(file_path):
                 raise FileNotFoundError(f"PDF file not found: {file_path}")
@@ -59,6 +93,23 @@ class RAGPipeline:
             if file_size == 0:
                 raise ValueError(f"PDF file is empty: {file_path}")
             
+            # Check if file is too large (100MB limit)
+            max_size = 100 * 1024 * 1024  # 100MB
+            if file_size > max_size:
+                raise ValueError(f"PDF file too large ({file_size / (1024*1024):.1f}MB). Maximum size is 100MB.")
+            
+            # Validate PDF structure before processing
+            try:
+                with open(file_path, 'rb') as file:
+                    # Read the last 1024 bytes to check for EOF marker
+                    file.seek(-1024, 2)  # Seek to end minus 1024 bytes
+                    end_bytes = file.read()
+                    if b'%%EOF' not in end_bytes:
+                        print(f"Warning: PDF file may be corrupted - EOF marker not found: {file_path}")
+                        print("Attempting to process anyway...")
+            except Exception as e:
+                print(f"Warning: Could not validate PDF structure: {e}")
+            
             with open(file_path, 'rb') as file:
                 try:
                     pdf_reader = PyPDF2.PdfReader(file)
@@ -71,10 +122,24 @@ class RAGPipeline:
                     if len(pdf_reader.pages) == 0:
                         raise ValueError(f"PDF file has no pages: {file_path}")
                     
+                    # Check if PDF has too many pages (limit to 500 pages)
+                    if len(pdf_reader.pages) > 500:
+                        raise ValueError(f"PDF file has too many pages ({len(pdf_reader.pages)}). Maximum is 500 pages.")
+                    
+                    print(f"Processing PDF with {len(pdf_reader.pages)} pages...")
+                    
                     for page_num, page in enumerate(pdf_reader.pages):
                         try:
+                            # Check memory periodically for large documents
+                            if page_num % 20 == 0:
+                                self._check_memory_usage()
+                                print(f"Processed {page_num}/{len(pdf_reader.pages)} pages...")
+                                
                             text = page.extract_text()
                             if text and text.strip():
+                                # Limit text length per page to prevent memory issues
+                                if len(text) > 100000:  # 100KB per page limit (increased)
+                                    text = text[:100000] + "... [truncated]"
                                 texts.append(text)
                         except Exception as e:
                             print(f"Warning: Failed to extract text from page {page_num + 1} of {file_path}: {str(e)}")
@@ -82,9 +147,17 @@ class RAGPipeline:
                     
                     if not texts:
                         raise ValueError(f"No readable text found in PDF: {file_path}")
+                    
+                    print(f"Successfully extracted text from {len(texts)} pages")
                         
                 except PyPDF2.errors.PdfReadError as e:
-                    raise ValueError(f"Invalid or corrupted PDF file: {file_path}. Error: {str(e)}")
+                    error_msg = str(e)
+                    if "EOF marker not found" in error_msg:
+                        raise ValueError(f"PDF file appears to be corrupted or incomplete: {file_path}. "
+                                       f"Error: {error_msg}. "
+                                       f"Try re-downloading or re-saving the PDF file.")
+                    else:
+                        raise ValueError(f"Invalid or corrupted PDF file: {file_path}. Error: {error_msg}")
                 except Exception as e:
                     raise ValueError(f"Failed to read PDF file: {file_path}. Error: {str(e)}")
                     
@@ -97,7 +170,7 @@ class RAGPipeline:
         return texts
 
     def _split_text(self, text: str, chunk_size: int = 1000, chunk_overlap: int = 100) -> List[str]:
-        """Split text into chunks."""
+        """Split text into chunks with memory management."""
         chunks = []
         start = 0
         while start < len(text):
@@ -105,7 +178,38 @@ class RAGPipeline:
             chunk = text[start:end]
             chunks.append(chunk)
             start = end - chunk_overlap
+            
+            # Limit total chunks to prevent memory issues (increased for large documents)
+            if len(chunks) > 2000:
+                chunks = chunks[:2000]
+                break
         return chunks
+
+    def _create_embeddings_batch(self, texts: List[str], batch_size: int = 32) -> np.ndarray:
+        """Create embeddings in batches to manage memory usage."""
+        all_embeddings = []
+        
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            
+            # Check memory before processing batch
+            self._check_memory_usage()
+            
+            try:
+                embedder = self._get_embedder()
+                batch_embeddings = embedder.encode(batch)
+                all_embeddings.append(batch_embeddings)
+                
+                # Force garbage collection after each batch
+                gc.collect()
+                
+            except Exception as e:
+                raise ValueError(f"Failed to create embeddings for batch {i//batch_size + 1}: {str(e)}")
+        
+        if not all_embeddings:
+            raise ValueError("No embeddings were created")
+            
+        return np.vstack(all_embeddings)
 
     def index_documents(self, file_paths: List[str]) -> float:
         """Loads, splits, and indexes documents from the given file paths. Returns indexing time in seconds."""
@@ -113,6 +217,9 @@ class RAGPipeline:
         
         if not file_paths:
             raise ValueError("No file paths provided for indexing")
+        
+        # Check initial memory
+        self._check_memory_usage()
         
         all_chunks = []
         processed_files = []
@@ -159,16 +266,21 @@ class RAGPipeline:
             if not all_chunks:
                 raise ValueError("No valid content found in any of the provided files")
 
+            # Check memory before adding to existing documents
+            self._check_memory_usage()
+
             # Add to existing documents
             self.documents.extend(all_chunks)
             
-            # Create embeddings
+            # Create embeddings in batches
             try:
                 texts = [doc.content for doc in self.documents]
                 if not texts:
                     raise ValueError("No text content available for embedding")
                 
-                embeddings = self.embedder.encode(texts)
+                # Use batch processing for embeddings (smaller batch size for large documents)
+                batch_size = 8 if len(texts) > 100 else 16
+                embeddings = self._create_embeddings_batch(texts, batch_size=batch_size)
                 
                 if embeddings is None or embeddings.size == 0:
                     raise ValueError("Failed to generate embeddings")
@@ -176,6 +288,7 @@ class RAGPipeline:
             except Exception as e:
                 # Remove the chunks we just added if embedding fails
                 self.documents = self.documents[:-len(all_chunks)]
+                gc.collect()
                 raise ValueError(f"Failed to create embeddings: {str(e)}")
             
             # Create or update FAISS index
@@ -189,6 +302,7 @@ class RAGPipeline:
             except Exception as e:
                 # Remove the chunks we just added if indexing fails
                 self.documents = self.documents[:-len(all_chunks)]
+                gc.collect()
                 raise ValueError(f"Failed to update FAISS index: {str(e)}")
             
             # Save index and documents
@@ -232,7 +346,7 @@ class RAGPipeline:
                 if len(self.documents) > 0:
                     try:
                         texts = [doc.content for doc in self.documents]
-                        embeddings = self.embedder.encode(texts)
+                        embeddings = self._create_embeddings_batch(texts, batch_size=16)
                         dimension = embeddings.shape[1]
                         self.index = faiss.IndexFlatL2(dimension)
                         self.index.add(embeddings.astype('float32'))
@@ -240,6 +354,7 @@ class RAGPipeline:
                         self.index = None
                 else:
                     self.index = None
+                gc.collect()
                 raise ValueError(f"Failed to save processed documents: {str(e)}")
                 
         except Exception as e:
@@ -247,6 +362,9 @@ class RAGPipeline:
             if not isinstance(e, ValueError):
                 raise ValueError(f"Unexpected error during document indexing: {str(e)}")
             raise
+        finally:
+            # Force garbage collection
+            gc.collect()
         
         # Calculate and return indexing time
         end_time = time.time()
@@ -258,7 +376,8 @@ class RAGPipeline:
         if self.index is None or len(self.documents) == 0:
             return []
         
-        query_embedding = self.embedder.encode([query])
+        embedder = self._get_embedder()
+        query_embedding = embedder.encode([query])
         distances, indices = self.index.search(query_embedding.astype('float32'), top_k)
         
         retrieved_docs = []
