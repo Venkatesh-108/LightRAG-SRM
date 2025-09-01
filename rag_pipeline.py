@@ -267,8 +267,8 @@ class RAGPipeline:
         
         return retrieved_docs
 
-    def _generate_response(self, query: str, context_docs: List[Document]) -> str:
-        """Generate response using the selected model provider with markdown formatting."""
+    def _generate_response(self, query: str, context_docs: List[Document]):
+        """Generate response using the selected model provider, yielding chunks for streaming."""
         context = "\n\n".join([doc.content for doc in context_docs])
         
         prompt = f"""Please provide a comprehensive answer to the following question based on the provided context. Your response should be well-structured and formatted using Markdown.
@@ -290,43 +290,66 @@ Answer (in Markdown):"""
             try:
                 from openai import OpenAI
                 client = OpenAI(api_key=Config.OPENAI_API_KEY)
-                response = client.chat.completions.create(
+                response_stream = client.chat.completions.create(
                     model="gpt-3.5-turbo",
                     messages=[
                         {"role": "system", "content": "You are a helpful assistant that answers questions based on the provided context. Please format your responses in Markdown."},
                         {"role": "user", "content": prompt}
-                    ]
+                    ],
+                    stream=True
                 )
-                return response.choices[0].message.content
+                for chunk in response_stream:
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        yield content
             except Exception as e:
-                return f"Error with OpenAI: {str(e)}."
+                yield f"Error with OpenAI: {str(e)}."
         
         elif self.model_provider == 'ollama':
             try:
-                response = ollama.chat(
+                response_stream = ollama.chat(
                     model=Config.OLLAMA_MODEL,
                     messages=[
                         {"role": "system", "content": "You are a helpful assistant that answers questions based on the provided context. Please format your responses in Markdown."},
                         {"role": "user", "content": prompt}
-                    ]
+                    ],
+                    stream=True
                 )
-                return response['message']['content']
+                for chunk in response_stream:
+                    content = chunk['message']['content']
+                    if content:
+                        yield content
             except Exception as e:
-                return f"Error with Ollama: {str(e)}. Make sure Ollama is running and the model '{Config.OLLAMA_MODEL}' is available."
+                yield f"Error with Ollama: {str(e)}. Make sure Ollama is running and the model '{Config.OLLAMA_MODEL}' is available."
 
-    def query(self, query_text: str) -> str:
-        """Performs a RAG query and returns the answer."""
+    def query(self, query_text: str):
+        """Performs a RAG query, yielding the response and performance metrics."""
         if self.index is None or len(self.documents) == 0:
-            return "No documents have been indexed yet. Please upload some PDF documents first."
-        
-        # Retrieve relevant documents
+            yield "No documents have been indexed yet. Please upload some PDF documents first."
+            return
+
+        # 1. Retrieve documents
+        retrieval_start_time = time.time()
         relevant_docs = self._retrieve_documents(query_text)
-        
+        retrieval_end_time = time.time()
+        retrieval_time = retrieval_end_time - retrieval_start_time
+
         if not relevant_docs:
-            return "No relevant documents found for your query."
-        
-        # Generate response
-        return self._generate_response(query_text, relevant_docs)
+            yield "No relevant documents found for your query."
+            return
+
+        # 2. Generate response and stream it
+        generation_start_time = time.time()
+        full_response = ""
+        for chunk in self._generate_response(query_text, relevant_docs):
+            full_response += chunk
+            yield chunk
+        generation_end_time = time.time()
+        generation_time = generation_end_time - generation_start_time
+
+        # 3. Stream performance data
+        performance_data = f"\n\n---\n*Retrieval: {retrieval_time:.2f}s, Generation: {generation_time:.2f}s*"
+        yield performance_data
 
     def delete_document(self, filename: str) -> bool:
         """Remove a specific document from the vector store."""

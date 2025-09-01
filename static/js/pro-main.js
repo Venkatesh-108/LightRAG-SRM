@@ -50,7 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ query }),
                 });
-                return response.json();
+                return response;
             },
             uploadFile(file, progressCallback, completionCallback) {
                 const formData = new FormData();
@@ -312,21 +312,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 app.els.chatInput.value = '';
                 app.els.chatMessages.scrollTop = app.els.chatMessages.scrollHeight;
 
-                const typingIndicator = app.ui.createTypingIndicator();
-                app.els.chatMessages.appendChild(typingIndicator);
-                app.els.chatMessages.scrollTop = app.els.chatMessages.scrollHeight;
+                const botMessageElement = app.ui.createMessageElement('', 'bot');
+                const botTextElement = botMessageElement.querySelector('.text');
+                app.els.chatMessages.appendChild(botMessageElement);
 
                 try {
-                    const data = await app.api.sendQuery(messageText);
-                    const message = app.ui.createMessageElement(data.response || data.error, 'bot');
-                    if (data.error) message.classList.add('error');
-                    app.els.chatMessages.appendChild(message);
+                    const response = await app.api.sendQuery(messageText);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let fullResponse = '';
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        fullResponse += decoder.decode(value, { stream: true });
+                        botTextElement.innerHTML = converter.makeHtml(fullResponse);
+                        app.els.chatMessages.scrollTop = app.els.chatMessages.scrollHeight;
+                    }
+
                 } catch (error) {
-                    const errorMsg = app.ui.createMessageElement('An error occurred. Please try again.', 'bot');
-                    errorMsg.classList.add('error');
-                    app.els.chatMessages.appendChild(errorMsg);
+                    botTextElement.innerHTML = 'An error occurred. Please try again.';
+                    botMessageElement.classList.add('error');
                 } finally {
-                    typingIndicator.remove();
                     app.els.chatMessages.scrollTop = app.els.chatMessages.scrollHeight;
                 }
             },

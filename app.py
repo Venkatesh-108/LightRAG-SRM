@@ -1,5 +1,5 @@
 import os
-from flask import Flask, request, jsonify, render_template, send_from_directory, session
+from flask import Flask, request, jsonify, render_template, send_from_directory, session, Response, stream_with_context
 from werkzeug.utils import secure_filename
 import os
 from rag_pipeline import RAGPipeline
@@ -183,8 +183,16 @@ def query():
     if error:
         return jsonify({'error': error}), 400
 
-    response = rag_pipeline.query(query_text)
-    return jsonify({'response': response})
+    def generate():
+        try:
+            for chunk in rag_pipeline.query(query_text):
+                yield chunk
+        except Exception as e:
+            # Log the error and yield a user-friendly message
+            print(f"Error during response generation: {e}")
+            yield "An error occurred while generating the response."
+
+    return Response(stream_with_context(generate()), mimetype='text/plain')
 
 @app.route('/select_model', methods=['POST'])
 def select_model():
