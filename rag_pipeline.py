@@ -282,7 +282,7 @@ class RAGPipeline:
         """Generate response using the selected model provider, yielding chunks for streaming."""
         context = "\n\n".join([doc.content for doc in context_docs])
         
-        prompt = f"""Please provide a comprehensive answer to the following question based on the provided context. Your response should be well-structured and formatted using Markdown.
+        prompt = f"""Please provide a comprehensive answer to the following question based on the single provided document context. Your response should be well-structured and formatted using Markdown.
 
 Use headings, lists, bold text, and other Markdown elements to improve readability. For example:
 
@@ -358,7 +358,7 @@ Answer (in Markdown):"""
 
         # 1. Retrieve documents
         retrieval_start_time = time.time()
-        relevant_docs = self._retrieve_documents(query_text, filename=filename)
+        relevant_docs = self._retrieve_documents(query_text, top_k=1, filename=filename)
         retrieval_end_time = time.time()
         retrieval_time = retrieval_end_time - retrieval_start_time
 
