@@ -1,7 +1,7 @@
 // pro-main.js
 
 document.addEventListener('DOMContentLoaded', () => {
-    const converter = new showdown.Converter();
+    const converter = new showdown.Converter({ openLinksInNewWindow: true });
     const app = {
         // DOM Elements
         els: {

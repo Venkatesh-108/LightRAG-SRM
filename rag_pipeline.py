@@ -1,6 +1,7 @@
 import os
 import pickle
 import time
+import urllib.parse
 from typing import List, Tuple
 import PyPDF2
 from sentence_transformers import SentenceTransformer
@@ -311,9 +312,9 @@ Answer (in Markdown):"""
                 for chunk in response_stream:
                     content = chunk.choices[0].delta.content
                     if content:
-                        yield content
+                        yield content, None
             except Exception as e:
-                yield f"Error with OpenAI: {str(e)}."
+                yield f"Error with OpenAI: {str(e)}.", None
         
         elif self.model_provider == 'ollama':
             try:
@@ -328,9 +329,26 @@ Answer (in Markdown):"""
                 for chunk in response_stream:
                     content = chunk['message']['content']
                     if content:
-                        yield content
+                        yield content, None
             except Exception as e:
-                yield f"Error with Ollama: {str(e)}. Make sure Ollama is running and the model '{Config.OLLAMA_MODEL}' is available."
+                yield f"Error with Ollama: {str(e)}. Make sure Ollama is running and the model '{Config.OLLAMA_MODEL}' is available.", None
+
+        # Yield sources after the response is complete
+        sources = []
+        for doc in context_docs:
+            source_info = {
+                'filename': doc.metadata.get('filename', 'Unknown'),
+                'page': doc.metadata.get('page', -1) + 1  # Assuming page is 0-indexed
+            }
+            if source_info not in sources:
+                sources.append(source_info)
+        
+        if sources:
+            source_text = "\n\n---\n**Sources:**\n"
+            for src in sources:
+                encoded_filename = urllib.parse.quote(src['filename'])
+                source_text += f"- [{src['filename']}](/documents/{encoded_filename}#page={src['page']}) (Page {src['page']})\n"
+            yield source_text, 'sources'
 
     def query(self, query_text: str, filename: str = None):
         """Performs a RAG query, yielding the response and performance metrics."""
@@ -353,10 +371,15 @@ Answer (in Markdown):"""
         first_token_time = None
         ttft = 0
         full_response = ""
+        sources_content = ""
         
         response_generator = self._generate_response(query_text, relevant_docs)
         
-        for chunk in response_generator:
+        for chunk, marker in response_generator:
+            if marker == 'sources':
+                sources_content = chunk
+                continue
+
             if first_token_time is None:
                 first_token_time = time.time()
                 ttft = first_token_time - generation_start_time
@@ -378,6 +401,10 @@ Answer (in Markdown):"""
             model_name = Config.OPENAI_MODEL
         else:
             model_name = Config.OLLAMA_MODEL
+
+        # Yield sources before performance data
+        if sources_content:
+            yield sources_content
 
         performance_data = (
             f"\n\n---\n"
