@@ -358,7 +358,7 @@ Answer (in Markdown):"""
 
         # 1. Retrieve documents
         retrieval_start_time = time.time()
-        relevant_docs = self._retrieve_documents(query_text, top_k=1, filename=filename)
+        relevant_docs = self._retrieve_documents(query_text, top_k=5, filename=filename)
         retrieval_end_time = time.time()
         retrieval_time = retrieval_end_time - retrieval_start_time
 

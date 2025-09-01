@@ -8,7 +8,7 @@ This is a Retrieval-Augmented Generation (RAG) application built with Python, Fl
 - **Dual LLM Support**: Switch between using a local Ollama model or the OpenAI API.
 - **Simple Chat Interface**: Ask questions about your documents in a clean, intuitive chat UI.
 - **Document Library**: View and manage your uploaded documents.
-- **Lightweight and Performant**: Designed to run efficiently on a standard laptop.
+- **Lightweight and Performant**: Designed to run efficiently on a standard laptop. 
 
 ## Project Structure
 
