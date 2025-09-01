@@ -301,7 +301,7 @@ Answer (in Markdown):"""
                 from openai import OpenAI
                 client = OpenAI(api_key=Config.OPENAI_API_KEY)
                 response_stream = client.chat.completions.create(
-                    model="gpt-3.5-turbo",
+                    model=Config.OPENAI_MODEL,
                     messages=[
                         {"role": "system", "content": "You are an expert technical assistant. Your task is to answer the user's query based *only* on the provided context. Do not use any external knowledge. If the answer is not in the context, state that clearly. Structure your answer in a clear and easy-to-read format. Use markdown, including lists, bolding, and code blocks where appropriate. Be direct and avoid conversational filler or introductory/summary sentences."},
                         {"role": "user", "content": prompt}
@@ -373,10 +373,16 @@ Answer (in Markdown):"""
         estimated_tokens = total_chars / 4
         tokens_per_sec = estimated_tokens / generation_time
 
-        # 4. Stream performance data
+        # 4. Determine model name and stream performance data
+        if self.model_provider == 'openai':
+            model_name = Config.OPENAI_MODEL
+        else:
+            model_name = Config.OLLAMA_MODEL
+
         performance_data = (
             f"\n\n---\n"
-            f"*TTFT: {ttft:.2f}s | "
+            f"*Model: {model_name} | "
+            f"TTFT: {ttft:.2f}s | "
             f"Tokens/sec: {tokens_per_sec:.2f} | "
             f"Retrieval: {retrieval_time:.2f}s | "
             f"Generation: {generation_time:.2f}s*"

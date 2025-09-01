@@ -9,6 +9,7 @@ class Config:
     ALLOWED_EXTENSIONS = {'pdf'}
     OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
     OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'llama3.2:3b')
+    OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-5-nano')
     VECTOR_STORE_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'vector_store')
     MODEL_PROVIDER = os.environ.get('MODEL_PROVIDER', 'ollama')
 
