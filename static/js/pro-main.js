@@ -333,9 +333,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 app.els.chatInput.value = '';
                 app.els.chatMessages.scrollTop = app.els.chatMessages.scrollHeight;
 
-                const botMessageElement = app.ui.createMessageElement('', 'bot', messageText);
-                const botTextElement = botMessageElement.querySelector('.text');
-                app.els.chatMessages.appendChild(botMessageElement);
+                const typingIndicator = app.ui.createTypingIndicator();
+                app.els.chatMessages.appendChild(typingIndicator);
+                app.els.chatMessages.scrollTop = app.els.chatMessages.scrollHeight;
+
+                let botMessageElement;
+                let botTextElement;
 
                 try {
                     const response = await app.api.sendQuery(messageText, app.state.activeDocument);
@@ -346,10 +349,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     const reader = response.body.getReader();
                     const decoder = new TextDecoder();
                     let fullResponse = '';
+                    let firstChunk = true;
 
                     while (true) {
                         const { done, value } = await reader.read();
                         if (done) break;
+
+                        if (firstChunk) {
+                            typingIndicator.remove();
+                            botMessageElement = app.ui.createMessageElement('', 'bot', messageText);
+                            botTextElement = botMessageElement.querySelector('.text');
+                            app.els.chatMessages.appendChild(botMessageElement);
+                            firstChunk = false;
+                        }
 
                         fullResponse += decoder.decode(value, { stream: true });
                         botTextElement.innerHTML = converter.makeHtml(fullResponse);
@@ -357,6 +369,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                 } catch (error) {
+                    if (typingIndicator) typingIndicator.remove();
+                    if (!botMessageElement) {
+                        botMessageElement = app.ui.createMessageElement('', 'bot', messageText);
+                        botTextElement = botMessageElement.querySelector('.text');
+                        app.els.chatMessages.appendChild(botMessageElement);
+                    }
                     botTextElement.innerHTML = 'An error occurred. Please try again.';
                     botMessageElement.classList.add('error');
                 } finally {
