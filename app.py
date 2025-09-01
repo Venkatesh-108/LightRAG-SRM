@@ -65,7 +65,7 @@ def get_current_model():
 
 @app.route('/set_model', methods=['POST'])
 def set_model_provider():
-    global _rag_pipelines
+    global _rag_pipelines, _initialization_errors
     data = request.get_json()
     provider = data.get('provider')
 
@@ -75,13 +75,27 @@ def set_model_provider():
     # Store the provider selection in session
     session['model_provider'] = provider
     
-    # Clear the cache for the specific provider to force a reload
-    if provider in _rag_pipelines:
-        del _rag_pipelines[provider]
+    # Clear any previous initialization errors for this provider
+    if provider in _initialization_errors:
+        del _initialization_errors[provider]
     
-    print(f"Model provider switched to: {provider}")
-    
-    return jsonify({'success': True})
+    # Try to initialize the pipeline for the new provider
+    try:
+        print(f"Initializing pipeline for {provider}...")
+        pipeline = RAGPipeline(model_provider=provider)
+        _rag_pipelines[provider] = pipeline
+        print(f"Successfully initialized pipeline for {provider}.")
+        return jsonify({'success': True})
+    except ValueError as e:
+        error_message = str(e)
+        _initialization_errors[provider] = error_message
+        print(f"Failed to initialize pipeline for {provider}: {error_message}")
+        return jsonify({'error': f'Failed to initialize {provider}: {error_message}'}), 400
+    except Exception as e:
+        error_message = f"Unexpected error initializing {provider}: {str(e)}"
+        _initialization_errors[provider] = error_message
+        print(error_message)
+        return jsonify({'error': error_message}), 500
 
 @app.route('/upload', methods=['POST'])
 def upload_file():

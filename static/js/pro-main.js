@@ -476,13 +476,37 @@ document.addEventListener('DOMContentLoaded', () => {
                 selectedOption.classList.add('active');
 
                 try {
-                    const result = await app.api.setModelProvider(provider);
-                    if (result.success) {
+                    const response = await fetch('/set_model', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ provider }),
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (response.ok && result.success) {
                         app.ui.showToast(`Model provider switched to ${provider}.`, 'success');
                     } else {
-                        app.ui.showToast(result.error || 'Failed to switch model.', 'error');
+                        // Revert the selection if there was an error
+                        app.els.modelOptions.forEach(opt => opt.classList.remove('active'));
+                        const currentProvider = await app.api.getCurrentModel();
+                        const currentOption = document.querySelector(`[data-provider="${currentProvider.provider}"]`);
+                        if (currentOption) {
+                            currentOption.classList.add('active');
+                        }
+                        
+                        const errorMsg = result.error || 'Failed to switch model.';
+                        app.ui.showToast(errorMsg, 'error');
                     }
                 } catch (error) {
+                    // Revert the selection if there was an error
+                    app.els.modelOptions.forEach(opt => opt.classList.remove('active'));
+                    const currentProvider = await app.api.getCurrentModel();
+                    const currentOption = document.querySelector(`[data-provider="${currentProvider.provider}"]`);
+                    if (currentOption) {
+                        currentOption.classList.add('active');
+                    }
+                    
                     app.ui.showToast('An error occurred while switching models.', 'error');
                 }
             },
@@ -571,7 +595,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 e.preventDefault();
                 const view = e.currentTarget.dataset.view;
                 if (view === 'chat') {
-                    window.location.reload();
+                    window.location.href = '/';
                 } else {
                     app.ui.switchView(view);
                 }
