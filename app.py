@@ -295,8 +295,31 @@ def get_documents():
                             print(f"Warning: Could not get page count for {filename}: {e}")
                             page_count = 0
                         
+                        # Try to get enhanced metadata from RAG pipeline
+                        title = filename.replace('.pdf', '').replace('_', ' ').title()
+                        author = "Unknown"
+                        
+                        try:
+                            # Get RAG pipeline to access document metadata
+                            rag_pipeline, error = get_rag_pipeline()
+                            if not error and rag_pipeline.documents:
+                                # Find documents with this filename
+                                doc_metadata = None
+                                for doc in rag_pipeline.documents:
+                                    if doc.metadata.get('filename') == filename:
+                                        doc_metadata = doc.metadata
+                                        break
+                                
+                                if doc_metadata:
+                                    title = doc_metadata.get('title', title)
+                                    author = doc_metadata.get('author', author)
+                        except Exception as e:
+                            print(f"Warning: Could not get enhanced metadata for {filename}: {e}")
+                        
                         documents.append({
                             'filename': filename,
+                            'title': title,
+                            'author': author,
                             'size': file_size,
                             'pages': page_count
                         })

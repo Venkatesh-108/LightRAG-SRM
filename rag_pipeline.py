@@ -10,6 +10,7 @@ import faiss
 import numpy as np
 import openai
 import ollama
+import re
 
 # Disable transformers model scanning on Windows to prevent hanging
 os.environ['TRANSFORMERS_OFFLINE'] = '1'
@@ -47,6 +48,160 @@ class RAGPipeline:
         if available_gb < 1.0:  # Less than 1GB available
             raise ValueError(f"Insufficient memory available: {available_gb:.2f}GB. Please close other applications and try again.")
         return available_gb
+
+    def _extract_pdf_metadata(self, file_path: str) -> dict:
+        """Extract PDF metadata including title, author, subject, etc."""
+        metadata = {
+            'title': None,
+            'author': None,
+            'subject': None,
+            'creator': None,
+            'producer': None,
+            'creation_date': None,
+            'modification_date': None
+        }
+        
+        try:
+            with open(file_path, 'rb') as file:
+                pdf_reader = PyPDF2.PdfReader(file)
+                
+                # Extract document info
+                if pdf_reader.metadata:
+                    info = pdf_reader.metadata
+                    metadata['title'] = info.get('/Title', None)
+                    metadata['author'] = info.get('/Author', None)
+                    metadata['subject'] = info.get('/Subject', None)
+                    metadata['creator'] = info.get('/Creator', None)
+                    metadata['producer'] = info.get('/Producer', None)
+                    metadata['creation_date'] = info.get('/CreationDate', None)
+                    metadata['modification_date'] = info.get('/ModDate', None)
+                
+                # Clean up metadata (remove None values)
+                metadata = {k: v for k, v in metadata.items() if v is not None}
+                
+        except Exception as e:
+            print(f"Warning: Failed to extract PDF metadata: {e}")
+        
+        return metadata
+
+    def _extract_document_title(self, pages: List[str]) -> str:
+        """Extract document title from first page content."""
+        if not pages:
+            return None
+        
+        first_page = pages[0]
+        lines = first_page.split('\n')
+        
+        # Look for title patterns in first few lines
+        for i, line in enumerate(lines[:10]):  # Check first 10 lines
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Title detection patterns
+            if self._is_document_title(line, i, lines):
+                return line
+        
+        return None
+
+    def _is_document_title(self, line: str, index: int, all_lines: List[str]) -> bool:
+        """Detect if a line is likely a document title."""
+        # Skip very short or very long lines
+        if len(line) < 5 or len(line) > 200:
+            return False
+        
+        # Title patterns
+        patterns = [
+            # All caps title (common in technical documents)
+            r'^[A-Z][A-Z\s\-&()]+$',
+            # Title case with proper capitalization
+            r'^[A-Z][a-zA-Z\s\-&()]+$',
+            # Title with version numbers
+            r'^[A-Z][a-zA-Z\s\-&()]+(?:v?\d+\.?\d*\.?\d*)?$',
+            # Title with company/product names
+            r'^[A-Z][a-zA-Z\s\-&()]+(?:User|Installation|Configuration|Guide|Manual|Handbook)',
+        ]
+        
+        for pattern in patterns:
+            if re.match(pattern, line) and len(line.split()) <= 15:
+                return True
+        
+        # Check if it's the first substantial line
+        if index <= 2 and len(line.split()) >= 3:
+            return True
+        
+        return False
+
+    def _extract_enhanced_headings(self, text: str) -> List[dict]:
+        """Extract all headings with their hierarchy levels."""
+        headings = []
+        lines = text.split('\n')
+        
+        for i, line in enumerate(lines):
+            line = line.strip()
+            if not line:
+                continue
+            
+            heading_level = self._get_heading_level(line, i, lines)
+            if heading_level > 0:
+                headings.append({
+                    'text': line,
+                    'level': heading_level,
+                    'line_number': i
+                })
+        
+        return headings
+
+    def _get_heading_level(self, line: str, index: int, all_lines: List[str]) -> int:
+        """Determine heading level (1-6, 0 for non-heading)."""
+        # Level 1: Main document title
+        if self._is_document_title(line, index, all_lines):
+            return 1
+        
+        # Level 2: Chapter titles
+        if re.match(r'^(?:Chapter|Section|Part)\s+\d+', line, re.IGNORECASE):
+            return 2
+        
+        # Level 3: Numbered sections (1.1, 1.2, etc.)
+        if re.match(r'^\d+\.\d+', line):
+            return 3
+        
+        # Level 4: Sub-sections
+        if re.match(r'^\d+\.\d+\.\d+', line):
+            return 4
+        
+        # Level 5: All caps short lines
+        if re.match(r'^[A-Z\s\-&()]{3,50}$', line) and len(line.split()) <= 8:
+            return 5
+        
+        # Level 6: Title case short lines
+        if re.match(r'^[A-Z][a-zA-Z\s\-&()]{3,50}$', line) and len(line.split()) <= 6:
+            return 6
+        
+        return 0
+
+    def _extract_document_info(self, file_path: str, pages: List[str]) -> dict:
+        """Extract comprehensive document information."""
+        document_info = {
+            'filename': os.path.basename(file_path),
+            'pdf_metadata': self._extract_pdf_metadata(file_path),
+            'extracted_title': self._extract_document_title(pages),
+            'headings': self._extract_enhanced_headings('\n'.join(pages)),
+            'page_count': len(pages),
+            'file_size': os.path.getsize(file_path)
+        }
+        
+        # Determine the best title
+        title_candidates = [
+            document_info['pdf_metadata'].get('title'),
+            document_info['extracted_title'],
+            document_info['filename'].replace('.pdf', '').replace('_', ' ').title()
+        ]
+        
+        document_info['best_title'] = next((title for title in title_candidates if title), 
+                                          document_info['filename'])
+        
+        return document_info
 
     def _initialize_pipeline(self):
         """Initializes the retriever and generator based on the model provider."""
@@ -325,6 +480,13 @@ class RAGPipeline:
                     pages = self._load_pdf(file_path)
                     processed_files.append(file_path)
                     
+                    # Extract comprehensive document information
+                    doc_info = self._extract_document_info(file_path, pages)
+                    print(f"📄 Document: {doc_info['best_title']}")
+                    print(f"   📝 Author: {doc_info['pdf_metadata'].get('author', 'Unknown')}")
+                    print(f"   📊 Pages: {doc_info['page_count']}")
+                    print(f"   📏 Size: {doc_info['file_size'] / 1024:.1f} KB")
+                    
                     # Split into chunks
                     for page_num, page_text in enumerate(pages):
                         try:
@@ -337,7 +499,13 @@ class RAGPipeline:
                                             'file_path': file_path,
                                             'page': page_num,
                                             'chunk': chunk_num,
-                                            'filename': os.path.basename(file_path)
+                                            'filename': doc_info['filename'],
+                                            'title': doc_info['best_title'],
+                                            'pdf_title': doc_info['pdf_metadata'].get('title'),
+                                            'author': doc_info['pdf_metadata'].get('author'),
+                                            'subject': doc_info['pdf_metadata'].get('subject'),
+                                            'page_count': doc_info['page_count'],
+                                            'file_size': doc_info['file_size']
                                         }
                                     )
                                     all_chunks.append(doc)

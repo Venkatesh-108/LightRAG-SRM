@@ -187,6 +187,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                         // Handle both old format (string) and new format (object)
                         const filename = typeof doc === 'string' ? doc : doc.filename;
+                        const title = typeof doc === 'object' ? (doc.title || filename) : filename;
+                        const author = typeof doc === 'object' ? (doc.author || 'Unknown') : 'Unknown';
                         const fileSize = typeof doc === 'object' ? doc.size : 0;
                         const pageCount = typeof doc === 'object' ? doc.pages : 0;
 
@@ -206,7 +208,8 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div class="document-info">
                                 <div class="file-icon"><i class="fas fa-file-pdf"></i></div>
                                 <div class="file-details">
-                                    <div class="document-name">${filename}</div>
+                                    <div class="document-name" data-filename="${filename}">${title}</div>
+                                    <div class="document-author">by ${author}</div>
                                     <div class="metadata">
                                         <span><i class="fas fa-hdd"></i> ${formattedSize}</span>
                                         <span><i class="fas fa-file-alt"></i> ${pageText}</span>
@@ -541,8 +544,8 @@ document.addEventListener('DOMContentLoaded', () => {
             handleOpenDocument(event) {
                 const docNameElement = event.target.closest('.document-name');
                 if (docNameElement) {
-                    const docName = docNameElement.textContent;
-                    window.open(`/documents/${docName}`, '_blank');
+                    const filename = docNameElement.dataset.filename;
+                    window.open(`/documents/${filename}`, '_blank');
                 }
             },
 
