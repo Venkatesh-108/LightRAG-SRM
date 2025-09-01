@@ -4,7 +4,10 @@ This is a Retrieval-Augmented Generation (RAG) application built with Python, Fl
 
 ## Features
 
-- **PDF Document Upload**: Easily upload and index PDF files.
+- **PDF Document Upload**: Easily upload and index PDF files with automatic indexing.
+- **Hierarchical Document Processing**: Supports document structure with headings, sections, and tables.
+- **Enhanced Accuracy**: Advanced retrieval with re-ranking and precise source citations.
+- **Single Source Citations**: Provides one most relevant source per response for clarity.
 - **Dual LLM Support**: Switch between using a local Ollama model or the OpenAI API.
 - **Simple Chat Interface**: Ask questions about your documents in a clean, intuitive chat UI.
 - **Document Library**: View and manage your uploaded documents.
@@ -102,8 +105,8 @@ python diagnose_system.py
 The application now includes:
 - Automatic memory monitoring
 - Batch processing for large documents
-- File size limits (100MB max)
-- Page limits (500 pages max)
+- No file size limits - process any size
+- No page limits - process any number of pages
 - Timeout protection (5 minutes)
 
 #### 4. Check System Health
@@ -122,6 +125,11 @@ python pdf_validator.py documents/your_file.pdf
 - **"PDF is encrypted"**: Remove password protection or use a different file
 - **"No readable text found"**: PDF may be image-based - use OCR tools first
 - **"File too large"**: Reduce file size or split into smaller documents
+
+**Response Features:**
+- **Single Source Citations**: Each response cites only the most relevant source for clarity
+- **Hierarchical Structure**: Responses preserve document headings and sections
+- **Enhanced Accuracy**: Advanced retrieval ensures more precise answers
 
 #### 6. If Problems Persist
 - Try uploading smaller documents first
