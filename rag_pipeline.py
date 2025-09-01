@@ -341,6 +341,11 @@ class RAGPipeline:
             if not line:
                 continue
 
+            # Skip lines that already have markdown heading markers
+            if line.startswith('#'):
+                processed_lines.append(line)
+                continue
+
             # Detect headings (all caps, short lines, etc.)
             if self._is_heading(line, i, lines):
                 # Add markdown heading markers
@@ -397,6 +402,9 @@ class RAGPipeline:
                 continue
 
             paragraph_size = len(paragraph)
+
+            # Check if this paragraph is a heading
+            is_heading = paragraph.startswith('##')
 
             # If adding this paragraph would exceed chunk size and we already have content
             if current_size + paragraph_size > chunk_size and current_chunk:
