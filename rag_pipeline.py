@@ -74,30 +74,30 @@ class RAGPipeline:
                 raise ValueError("OpenAI API key is not set. Please set it in the .env file.")
 
     def _load_pdf(self, file_path: str) -> List[str]:
-        """Load and extract text from PDF file with memory checks."""
+        """Load and extract text from PDF file with enhanced structure detection."""
         texts = []
         try:
             # Check memory before processing
             self._check_memory_usage()
-            
+
             # Check if file exists
             if not os.path.exists(file_path):
                 raise FileNotFoundError(f"PDF file not found: {file_path}")
-            
+
             # Check if file is readable
             if not os.access(file_path, os.R_OK):
                 raise PermissionError(f"Cannot read PDF file: {file_path}")
-            
+
             # Check file size
             file_size = os.path.getsize(file_path)
             if file_size == 0:
                 raise ValueError(f"PDF file is empty: {file_path}")
-            
+
             # Check if file is too large (100MB limit)
             max_size = 100 * 1024 * 1024  # 100MB
             if file_size > max_size:
                 raise ValueError(f"PDF file too large ({file_size / (1024*1024):.1f}MB). Maximum size is 100MB.")
-            
+
             # Validate PDF structure before processing
             try:
                 with open(file_path, 'rb') as file:
@@ -109,47 +109,47 @@ class RAGPipeline:
                         print("Attempting to process anyway...")
             except Exception as e:
                 print(f"Warning: Could not validate PDF structure: {e}")
-            
+
             with open(file_path, 'rb') as file:
                 try:
                     pdf_reader = PyPDF2.PdfReader(file)
-                    
+
                     # Check if PDF is encrypted
                     if pdf_reader.is_encrypted:
                         raise ValueError(f"PDF file is encrypted and cannot be processed: {file_path}")
-                    
+
                     # Check if PDF has pages
                     if len(pdf_reader.pages) == 0:
                         raise ValueError(f"PDF file has no pages: {file_path}")
-                    
+
                     # Check if PDF has too many pages (limit to 500 pages)
                     if len(pdf_reader.pages) > 500:
                         raise ValueError(f"PDF file has too many pages ({len(pdf_reader.pages)}). Maximum is 500 pages.")
-                    
+
                     print(f"Processing PDF with {len(pdf_reader.pages)} pages...")
-                    
+
                     for page_num, page in enumerate(pdf_reader.pages):
                         try:
                             # Check memory periodically for large documents
                             if page_num % 20 == 0:
                                 self._check_memory_usage()
                                 print(f"Processed {page_num}/{len(pdf_reader.pages)} pages...")
-                                
+
                             text = page.extract_text()
                             if text and text.strip():
-                                # Limit text length per page to prevent memory issues
-                                if len(text) > 100000:  # 100KB per page limit (increased)
-                                    text = text[:100000] + "... [truncated]"
-                                texts.append(text)
+                                # Enhanced text processing
+                                processed_text = self._process_page_text(text, page_num)
+                                if processed_text.strip():
+                                    texts.append(processed_text)
                         except Exception as e:
                             print(f"Warning: Failed to extract text from page {page_num + 1} of {file_path}: {str(e)}")
                             continue
-                    
+
                     if not texts:
                         raise ValueError(f"No readable text found in PDF: {file_path}")
-                    
+
                     print(f"Successfully extracted text from {len(texts)} pages")
-                        
+
                 except PyPDF2.errors.PdfReadError as e:
                     error_msg = str(e)
                     if "EOF marker not found" in error_msg:
@@ -160,29 +160,120 @@ class RAGPipeline:
                         raise ValueError(f"Invalid or corrupted PDF file: {file_path}. Error: {error_msg}")
                 except Exception as e:
                     raise ValueError(f"Failed to read PDF file: {file_path}. Error: {str(e)}")
-                    
+
         except Exception as e:
             # Re-raise with more context if it's not already our custom error
             if not isinstance(e, (FileNotFoundError, PermissionError, ValueError)):
                 raise ValueError(f"Unexpected error loading PDF {file_path}: {str(e)}")
             raise
-            
+
         return texts
 
-    def _split_text(self, text: str, chunk_size: int = 1000, chunk_overlap: int = 100) -> List[str]:
-        """Split text into chunks with memory management."""
+    def _process_page_text(self, text: str, page_num: int) -> str:
+        """Process page text to enhance structure and readability."""
+        import re
+
+        # Clean up excessive whitespace
+        text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)  # Multiple newlines to double
+        text = re.sub(r' +', ' ', text)  # Multiple spaces to single
+
+        # Detect and preserve document structure
+        lines = text.split('\n')
+        processed_lines = []
+
+        for i, line in enumerate(lines):
+            line = line.strip()
+            if not line:
+                continue
+
+            # Detect headings (all caps, short lines, etc.)
+            if self._is_heading(line, i, lines):
+                # Add markdown heading markers
+                processed_lines.append(f"## {line}")
+            else:
+                processed_lines.append(line)
+
+        # Join lines with proper spacing
+        processed_text = '\n\n'.join(processed_lines)
+
+        # Limit text length to prevent memory issues
+        if len(processed_text) > 100000:  # 100KB per page limit
+            processed_text = processed_text[:100000] + "\n\n... [truncated]"
+
+        return processed_text
+
+    def _is_heading(self, line: str, index: int, all_lines: List[str]) -> bool:
+        """Detect if a line is likely a heading."""
+        import re
+
+        # Skip very short or very long lines
+        if len(line) < 3 or len(line) > 100:
+            return False
+
+        # Check for common heading patterns
+        # 1. All caps with numbers (like "1. INTRODUCTION" or "CHAPTER 1")
+        if re.match(r'^[A-Z0-9\s.,\-&()]+$', line) and len(line.split()) <= 10:
+            return True
+
+        # 2. Title case with numbers
+        if re.match(r'^[A-Z][a-zA-Z0-9\s.,\-&()]+$', line) and len(line.split()) <= 8:
+            return True
+
+        # 3. Lines that are followed by more whitespace or shorter content
+        if index < len(all_lines) - 1:
+            next_line = all_lines[index + 1].strip() if index + 1 < len(all_lines) else ""
+            if not next_line or len(next_line) < len(line) * 0.7:
+                return True
+
+        return False
+
+    def _split_text(self, text: str, chunk_size: int = 1200, chunk_overlap: int = 150) -> List[str]:
+        """Split text into chunks while preserving document structure."""
         chunks = []
-        start = 0
-        while start < len(text):
-            end = start + chunk_size
-            chunk = text[start:end]
-            chunks.append(chunk)
-            start = end - chunk_overlap
-            
-            # Limit total chunks to prevent memory issues (increased for large documents)
-            if len(chunks) > 2000:
-                chunks = chunks[:2000]
-                break
+
+        # Split text by paragraphs first (double newlines)
+        paragraphs = text.split('\n\n')
+        current_chunk = ""
+        current_size = 0
+
+        for paragraph in paragraphs:
+            paragraph = paragraph.strip()
+            if not paragraph:
+                continue
+
+            paragraph_size = len(paragraph)
+
+            # If adding this paragraph would exceed chunk size and we already have content
+            if current_size + paragraph_size > chunk_size and current_chunk:
+                # Save current chunk
+                if current_chunk.strip():
+                    chunks.append(current_chunk.strip())
+
+                # Start new chunk with overlap from previous chunk
+                if len(chunks) > 0:
+                    # Get last part of previous chunk for overlap
+                    overlap_text = chunks[-1][-chunk_overlap:] if len(chunks[-1]) > chunk_overlap else chunks[-1]
+                    current_chunk = overlap_text + "\n\n" + paragraph
+                    current_size = len(current_chunk)
+                else:
+                    current_chunk = paragraph
+                    current_size = paragraph_size
+            else:
+                # Add paragraph to current chunk
+                if current_chunk:
+                    current_chunk += "\n\n" + paragraph
+                else:
+                    current_chunk = paragraph
+                current_size += paragraph_size + 2  # +2 for \n\n
+
+        # Add the last chunk if it exists
+        if current_chunk.strip():
+            chunks.append(current_chunk.strip())
+
+        # Limit total chunks to prevent memory issues
+        if len(chunks) > 2000:
+            chunks = chunks[:2000]
+
         return chunks
 
     def _create_embeddings_batch(self, texts: List[str], batch_size: int = 32) -> np.ndarray:
@@ -371,50 +462,93 @@ class RAGPipeline:
         indexing_time = end_time - start_time
         return indexing_time
 
-    def _retrieve_documents(self, query: str, top_k: int = 3, filename: str = None) -> List[Document]:
-        """Retrieve relevant documents for the query."""
+    def _retrieve_documents(self, query: str, top_k: int = 5, filename: str = None) -> List[Document]:
+        """Retrieve relevant documents for the query with enhanced relevance."""
         if self.index is None or len(self.documents) == 0:
             return []
-        
+
         embedder = self._get_embedder()
         query_embedding = embedder.encode([query])
-        distances, indices = self.index.search(query_embedding.astype('float32'), top_k)
-        
+        distances, indices = self.index.search(query_embedding.astype('float32'), min(top_k * 2, len(self.documents)))
+
         retrieved_docs = []
         if not filename:
+            # Get initial results
             for idx in indices[0]:
                 if idx < len(self.documents):
                     retrieved_docs.append(self.documents[idx])
+
+            # Re-rank based on content relevance (simple keyword matching)
+            retrieved_docs = self._rerank_documents(query, retrieved_docs)[:top_k]
             return retrieved_docs
         else:
             # Filter by filename
+            filtered_docs = []
             for idx in indices[0]:
-                if len(retrieved_docs) >= top_k:
-                    break
                 if idx < len(self.documents):
                     doc = self.documents[idx]
                     if doc.metadata.get('filename') == filename:
-                        retrieved_docs.append(doc)
-            return retrieved_docs
+                        filtered_docs.append(doc)
+
+            # Re-rank filtered results
+            filtered_docs = self._rerank_documents(query, filtered_docs)[:top_k]
+            return filtered_docs
+
+    def _rerank_documents(self, query: str, documents: List[Document]) -> List[Document]:
+        """Re-rank documents based on query relevance."""
+        if not documents:
+            return documents
+
+        # Simple keyword-based scoring
+        query_lower = query.lower()
+        query_words = set(query_lower.split())
+
+        scored_docs = []
+        for doc in documents:
+            content_lower = doc.content.lower()
+            score = 0
+
+            # Exact phrase match (highest weight)
+            if query_lower in content_lower:
+                score += 10
+
+            # Word matches
+            for word in query_words:
+                if len(word) > 2:  # Skip short words
+                    if word in content_lower:
+                        score += 1
+
+            # Heading matches (higher weight for headings)
+            if "##" in doc.content and any(word in doc.content.lower() for word in query_words):
+                score += 3
+
+            scored_docs.append((score, doc))
+
+        # Sort by score (descending) and return documents
+        scored_docs.sort(key=lambda x: x[0], reverse=True)
+        return [doc for score, doc in scored_docs]
 
     def _generate_response(self, query: str, context_docs: List[Document]):
         """Generate response using the selected model provider, yielding chunks for streaming."""
-        context = "\n\n".join([doc.content for doc in context_docs])
-        
-        prompt = f"""Please provide a comprehensive answer to the following question based on the single provided document context. Your response should be well-structured and formatted using Markdown.
+        # Organize context by document structure
+        structured_context = self._organize_context(context_docs)
 
-Use headings, lists, bold text, and other Markdown elements to improve readability. For example:
+        prompt = f"""Please provide a comprehensive and accurate answer to the following question based on the provided document context.
 
-- Use bullet points for lists.
-- Use **bold** or *italic* text to emphasize key points.
-- Use headings (`#`, `##`) to structure your answer.
+**Important Guidelines:**
+- Answer based ONLY on the provided context
+- If the information is not in the context, say "This information is not available in the provided documents"
+- Structure your answer clearly with headings and bullet points
+- Include specific details, page numbers, and section references when available
+- Be precise and avoid generalizations
+- Use markdown formatting for better readability
 
-Context:
-{context}
+**Context:**
+{structured_context}
 
-Question: {query}
+**Question:** {query}
 
-Answer (in Markdown):"""
+**Answer (be specific and accurate):**"""
 
         if self.model_provider == 'openai':
             try:
@@ -423,7 +557,7 @@ Answer (in Markdown):"""
                 response_stream = client.chat.completions.create(
                     model=Config.OPENAI_MODEL,
                     messages=[
-                        {"role": "system", "content": "You are an expert technical assistant. Your task is to answer the user's query based *only* on the provided context. Do not use any external knowledge. If the answer is not in the context, state that clearly. Structure your answer in a clear and easy-to-read format. Use markdown, including lists, bolding, and code blocks where appropriate. Be direct and avoid conversational filler or introductory/summary sentences."},
+                        {"role": "system", "content": "You are a precise technical assistant. Answer questions using ONLY the provided context. Be specific with details, references, and page numbers. If information is missing, state it clearly. Structure answers with markdown for clarity. Focus on accuracy over completeness."},
                         {"role": "user", "content": prompt}
                     ],
                     stream=True
@@ -434,13 +568,13 @@ Answer (in Markdown):"""
                         yield content, None
             except Exception as e:
                 yield f"Error with OpenAI: {str(e)}.", None
-        
+
         elif self.model_provider == 'ollama':
             try:
                 response_stream = ollama.chat(
                     model=Config.OLLAMA_MODEL,
                     messages=[
-                        {"role": "system", "content": "You are an expert technical assistant. Your task is to answer the user's query based *only* on the provided context. Do not use any external knowledge. If the answer is not in the context, state that clearly. Structure your answer in a clear and easy-to-read format. Use markdown, including lists, bolding, and code blocks where appropriate. Be direct and avoid conversational filler or introductory/summary sentences."},
+                        {"role": "system", "content": "You are a precise technical assistant. Answer questions using ONLY the provided context. Be specific with details, references, and page numbers. If information is missing, state it clearly. Structure answers with markdown for clarity. Focus on accuracy over completeness."},
                         {"role": "user", "content": prompt}
                     ],
                     stream=True
@@ -452,22 +586,38 @@ Answer (in Markdown):"""
             except Exception as e:
                 yield f"Error with Ollama: {str(e)}. Make sure Ollama is running and the model '{Config.OLLAMA_MODEL}' is available.", None
 
-        # Yield sources after the response is complete
-        sources = []
+    def _organize_context(self, context_docs: List[Document]) -> str:
+        """Organize context documents by source and structure."""
+        if not context_docs:
+            return "No context available."
+
+        organized_parts = []
+
+        # Group by filename
+        docs_by_file = {}
         for doc in context_docs:
-            source_info = {
-                'filename': doc.metadata.get('filename', 'Unknown'),
-                'page': doc.metadata.get('page', -1) + 1  # Assuming page is 0-indexed
-            }
-            if source_info not in sources:
-                sources.append(source_info)
-        
-        if sources:
-            source_text = "\n\n---\n**Sources:**\n"
-            for src in sources:
-                encoded_filename = urllib.parse.quote(src['filename'])
-                source_text += f"- [{src['filename']}](/documents/{encoded_filename}#page={src['page']}) (Page {src['page']})\n"
-            yield source_text, 'sources'
+            filename = doc.metadata.get('filename', 'Unknown')
+            if filename not in docs_by_file:
+                docs_by_file[filename] = []
+            docs_by_file[filename].append(doc)
+
+        # Format each document's content
+        for filename, docs in docs_by_file.items():
+            organized_parts.append(f"## From {filename}:")
+
+            for i, doc in enumerate(docs):
+                page = doc.metadata.get('page', 0) + 1
+                chunk = doc.metadata.get('chunk', 0)
+
+                # Add page reference
+                organized_parts.append(f"### Page {page}, Section {chunk + 1}:")
+
+                # Clean up the content for better readability
+                content = doc.content.strip()
+                organized_parts.append(content)
+                organized_parts.append("")  # Empty line for spacing
+
+        return "\n".join(organized_parts)
 
     def query(self, query_text: str, filename: str = None):
         """Performs a RAG query, yielding the response and performance metrics."""
@@ -493,37 +643,46 @@ Answer (in Markdown):"""
         sources_content = ""
         
         response_generator = self._generate_response(query_text, relevant_docs)
-        
-        for chunk, marker in response_generator:
-            if marker == 'sources':
-                sources_content = chunk
-                continue
 
+        for chunk, marker in response_generator:
             if first_token_time is None:
                 first_token_time = time.time()
                 ttft = first_token_time - generation_start_time
-            
+
             full_response += chunk
             yield chunk
-            
+
         generation_end_time = time.time()
         # Ensure generation_time is not zero to avoid division errors
         generation_time = (generation_end_time - generation_start_time) or 1e-6
 
-        # 3. Calculate tokens per second (approximating 1 token ~= 4 chars)
+        # Calculate tokens per second (approximating 1 token ~= 4 chars)
         total_chars = len(full_response)
         estimated_tokens = total_chars / 4
         tokens_per_sec = estimated_tokens / generation_time
 
-        # 4. Determine model name and stream performance data
+        # Determine model name
         if self.model_provider == 'openai':
             model_name = Config.OPENAI_MODEL
         else:
             model_name = Config.OLLAMA_MODEL
 
-        # Yield sources before performance data
-        if sources_content:
-            yield sources_content
+        # Generate and yield sources
+        sources = []
+        for doc in relevant_docs:
+            source_info = {
+                'filename': doc.metadata.get('filename', 'Unknown'),
+                'page': doc.metadata.get('page', -1) + 1
+            }
+            if source_info not in sources:
+                sources.append(source_info)
+
+        if sources:
+            source_text = "\n\n---\n**Sources:**\n"
+            for src in sources:
+                encoded_filename = urllib.parse.quote(src['filename'])
+                source_text += f"- [{src['filename']}](/documents/{encoded_filename}#page={src['page']}) (Page {src['page']})\n"
+            yield source_text
 
         performance_data = (
             f"\n\n---\n"
