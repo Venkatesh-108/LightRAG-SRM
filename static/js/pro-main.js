@@ -114,11 +114,6 @@ document.addEventListener('DOMContentLoaded', () => {
             },
 
             switchView(view) {
-                console.log('Switching to view:', view); // Debug log
-                app.els.navLinks.forEach(l => l.classList.remove('active'));
-                const targetLink = document.querySelector(`.sidebar-nav a[data-view="${view}"]`);
-                if (targetLink) targetLink.classList.add('active');
-
                 app.ui.hideAllViews();
 
                 // Show selected section
@@ -130,13 +125,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (view === 'settings') {
                     if (app.els.settingsPage) {
                         app.els.settingsPage.style.display = 'block';
-                        console.log('Settings page displayed'); // Debug log
                         app.loadCurrentModel();
                     } else {
                         console.error('Settings page element not found');
                     }
                 }
+                
+                // Update active link after switching
+                app.els.navLinks.forEach(l => l.classList.remove('active'));
+                const targetLink = document.querySelector(`.sidebar-nav a[data-view="${view}"]`);
+                if (targetLink) targetLink.classList.add('active');
             },
+
             createMessageElement(text, type, query = '') {
                 const messageElement = document.createElement('div');
                 messageElement.classList.add('message', type, 'message-entry');
@@ -495,10 +495,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const filename = chatBtn.dataset.filename;
                 app.state.activeDocument = filename;
+
+                // Clear chat history and show welcome screen
+                app.els.chatMessages.innerHTML = '';
+                if (app.els.welcomeContent) {
+                    app.els.welcomeContent.classList.remove('hidden');
+                }
+                
                 app.ui.showDocChatHeader(filename);
                 app.ui.switchView('chat');
                 app.els.chatInput.focus();
                 app.els.chatInput.placeholder = `Ask a question about ${filename}...`;
+                app.ui.showToast(`Switched to chat with ${filename}`, 'info');
             },
             handleRefreshDocuments(event) {
                 const refreshButton = app.els.refreshDocs;
@@ -543,7 +551,12 @@ document.addEventListener('DOMContentLoaded', () => {
             // Setup event listeners
             app.els.navLinks.forEach(link => link.addEventListener('click', (e) => {
                 e.preventDefault();
-                app.ui.switchView(e.currentTarget.dataset.view);
+                const view = e.currentTarget.dataset.view;
+                if (view === 'chat') {
+                    window.location.reload();
+                } else {
+                    app.ui.switchView(view);
+                }
             }));
             app.els.sendButton.addEventListener('click', this.handlers.handleSendMessage);
             app.els.chatInput.addEventListener('keypress', (e) => {
