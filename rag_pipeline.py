@@ -639,13 +639,16 @@ class RAGPipeline:
         return indexing_time
 
     def _retrieve_documents(self, query: str, top_k: int = 5, filename: str = None) -> List[Document]:
-        """Retrieve relevant documents for the query with enhanced relevance."""
+        """Retrieve relevant documents for the query with enhanced relevance and heading prioritization."""
         if self.index is None or len(self.documents) == 0:
             return []
 
         embedder = self._get_embedder()
         query_embedding = embedder.encode([query])
-        distances, indices = self.index.search(query_embedding.astype('float32'), min(top_k * 2, len(self.documents)))
+        
+        # Retrieve more documents initially for better re-ranking with heading weighting
+        initial_retrieval_count = min(top_k * 4, len(self.documents))  # Increased from 2x to 4x
+        distances, indices = self.index.search(query_embedding.astype('float32'), initial_retrieval_count)
 
         retrieved_docs = []
         if not filename:
@@ -654,7 +657,22 @@ class RAGPipeline:
                 if idx < len(self.documents):
                     retrieved_docs.append(self.documents[idx])
 
-            # Re-rank based on content relevance (simple keyword matching)
+            # Add heading-based retrieval for better coverage
+            heading_based_docs = self._retrieve_by_headings(query, top_k * 2)
+            retrieved_docs.extend(heading_based_docs)
+            
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_docs = []
+            for doc in retrieved_docs:
+                doc_id = f"{doc.metadata.get('filename')}_{doc.metadata.get('page')}_{doc.metadata.get('chunk')}"
+                if doc_id not in seen:
+                    seen.add(doc_id)
+                    unique_docs.append(doc)
+            
+            retrieved_docs = unique_docs
+
+            # Re-rank based on enhanced heading-weighted relevance
             retrieved_docs = self._rerank_documents(query, retrieved_docs)[:top_k]
             return retrieved_docs
         else:
@@ -666,12 +684,54 @@ class RAGPipeline:
                     if doc.metadata.get('filename') == filename:
                         filtered_docs.append(doc)
 
-            # Re-rank filtered results
+            # Add heading-based retrieval for the specific file
+            heading_based_docs = self._retrieve_by_headings(query, top_k * 2, filename)
+            filtered_docs.extend(heading_based_docs)
+            
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_docs = []
+            for doc in filtered_docs:
+                doc_id = f"{doc.metadata.get('filename')}_{doc.metadata.get('page')}_{doc.metadata.get('chunk')}"
+                if doc_id not in seen:
+                    seen.add(doc_id)
+                    unique_docs.append(doc)
+            
+            filtered_docs = unique_docs
+
+            # Re-rank filtered results with heading weighting
             filtered_docs = self._rerank_documents(query, filtered_docs)[:top_k]
             return filtered_docs
 
+    def _retrieve_by_headings(self, query: str, top_k: int = 10, filename: str = None) -> List[Document]:
+        """Retrieve documents based on heading matches."""
+        query_lower = query.lower()
+        query_words = set(query_lower.split())
+        
+        heading_matches = []
+        
+        # Search through all documents for heading matches
+        for doc in self.documents:
+            # Skip if filename filter is specified and doesn't match
+            if filename and doc.metadata.get('filename') != filename:
+                continue
+                
+            # Extract headings from the document
+            headings = self._extract_headings_from_content(doc.content)
+            
+            if headings:
+                # Calculate heading match score
+                heading_score = self._calculate_heading_match_score(query_lower, query_words, headings)
+                
+                if heading_score > 0:  # Only include documents with heading matches
+                    heading_matches.append((heading_score, doc))
+        
+        # Sort by heading score (descending) and return top results
+        heading_matches.sort(key=lambda x: x[0], reverse=True)
+        return [doc for score, doc in heading_matches[:top_k]]
+
     def _rerank_documents(self, query: str, documents: List[Document]) -> List[Document]:
-        """Re-rank documents based on query relevance."""
+        """Re-rank documents based on query relevance with enhanced heading weighting."""
         if not documents:
             return documents
 
@@ -684,25 +744,85 @@ class RAGPipeline:
             content_lower = doc.content.lower()
             score = 0
 
-            # Exact phrase match (highest weight)
+            # Extract headings from the document content
+            headings = self._extract_headings_from_content(doc.content)
+            
+            # Check for exact phrase match (highest weight)
             if query_lower in content_lower:
-                score += 10
+                score += 15
 
-            # Word matches
+            # Check for heading matches (very high weight)
+            heading_match_score = self._calculate_heading_match_score(query_lower, query_words, headings)
+            score += heading_match_score
+
+            # Word matches in content
             for word in query_words:
                 if len(word) > 2:  # Skip short words
                     if word in content_lower:
                         score += 1
-
-            # Heading matches (higher weight for headings)
-            if "##" in doc.content and any(word in doc.content.lower() for word in query_words):
-                score += 3
 
             scored_docs.append((score, doc))
 
         # Sort by score (descending) and return documents
         scored_docs.sort(key=lambda x: x[0], reverse=True)
         return [doc for score, doc in scored_docs]
+
+    def _extract_headings_from_content(self, content: str) -> List[str]:
+        """Extract headings from document content."""
+        headings = []
+        lines = content.split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if line.startswith('##'):
+                # Remove markdown markers and clean up
+                heading = line.replace('##', '').strip()
+                if heading:
+                    headings.append(heading.lower())
+        
+        return headings
+
+    def _calculate_heading_match_score(self, query_lower: str, query_words: set, headings: List[str]) -> int:
+        """Calculate score for heading matches with enhanced weighting."""
+        if not headings:
+            return 0
+        
+        score = 0
+        
+        for heading in headings:
+            heading_lower = heading.lower()
+            
+            # Exact heading match (highest weight)
+            if query_lower == heading_lower:
+                score += 50
+            
+            # Query is contained in heading
+            elif query_lower in heading_lower:
+                score += 30
+            
+            # Heading is contained in query
+            elif heading_lower in query_lower:
+                score += 25
+            
+            # Word matches in heading
+            word_matches = 0
+            for word in query_words:
+                if len(word) > 2 and word in heading_lower:
+                    word_matches += 1
+            
+            # Score based on percentage of query words found in heading
+            if word_matches > 0:
+                match_percentage = word_matches / len(query_words)
+                if match_percentage >= 0.8:  # 80% or more words match
+                    score += 20
+                elif match_percentage >= 0.6:  # 60% or more words match
+                    score += 15
+                elif match_percentage >= 0.4:  # 40% or more words match
+                    score += 10
+                elif match_percentage >= 0.2:  # 20% or more words match
+                    score += 5
+        
+        return score
 
     def _generate_response(self, query: str, context_docs: List[Document]):
         """Generate response using the selected model provider, yielding chunks for streaming."""

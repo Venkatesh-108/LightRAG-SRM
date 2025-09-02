@@ -15,6 +15,10 @@ app.config.from_object(Config)
 _rag_pipelines = {}
 _initialization_errors = {}
 
+# Global flag to track indexing status
+_indexing_in_progress = False
+_indexing_thread = None
+
 def run_with_timeout(func, args, timeout_seconds=300):
     """Run a function with a timeout using threading (Windows compatible)."""
     result = [None]
@@ -40,6 +44,123 @@ def run_with_timeout(func, args, timeout_seconds=300):
     
     return result[0], None
 
+def get_indexed_files():
+    """Get list of files that are currently indexed in the RAG pipeline."""
+    try:
+        # Access the global pipeline directly to avoid request context issues
+        global _rag_pipelines
+        default_provider = Config.MODEL_PROVIDER
+        
+        if default_provider not in _rag_pipelines:
+            return set()
+        
+        rag_pipeline = _rag_pipelines[default_provider]
+        if not rag_pipeline or not rag_pipeline.documents:
+            return set()
+        
+        # Get unique filenames from indexed documents
+        indexed_files = set()
+        for doc in rag_pipeline.documents:
+            filename = doc.metadata.get('filename')
+            if filename:
+                indexed_files.add(filename)
+        
+        return indexed_files
+    except Exception as e:
+        print(f"Error getting indexed files: {e}")
+        return set()
+
+def get_unindexed_files():
+    """Get list of PDF files in upload folder that are not indexed."""
+    try:
+        # Get all PDF files in upload folder
+        upload_folder = app.config['UPLOAD_FOLDER']
+        if not os.path.exists(upload_folder):
+            return []
+        
+        all_pdf_files = set()
+        for filename in os.listdir(upload_folder):
+            if filename.endswith('.pdf'):
+                all_pdf_files.add(filename)
+        
+        # Get indexed files
+        indexed_files = get_indexed_files()
+        
+        # Return files that are not indexed
+        unindexed_files = all_pdf_files - indexed_files
+        return list(unindexed_files)
+    
+    except Exception as e:
+        print(f"Error getting unindexed files: {e}")
+        return []
+
+def auto_index_unindexed_files():
+    """Automatically index any unindexed PDF files."""
+    global _indexing_in_progress, _indexing_thread, _rag_pipelines
+    
+    if _indexing_in_progress:
+        print("Indexing already in progress, skipping...")
+        return
+    
+    try:
+        _indexing_in_progress = True
+        print("🔍 Checking for unindexed files...")
+        
+        # Get unindexed files
+        unindexed_files = get_unindexed_files()
+        
+        if not unindexed_files:
+            print("✅ All PDF files are already indexed!")
+            return
+        
+        print(f"📄 Found {len(unindexed_files)} unindexed files: {unindexed_files}")
+        
+        # Get RAG pipeline directly from global cache
+        default_provider = Config.MODEL_PROVIDER
+        if default_provider not in _rag_pipelines:
+            print(f"❌ RAG pipeline not available for {default_provider}")
+            return
+        
+        rag_pipeline = _rag_pipelines[default_provider]
+        
+        # Prepare file paths
+        upload_folder = app.config['UPLOAD_FOLDER']
+        file_paths = [os.path.join(upload_folder, filename) for filename in unindexed_files]
+        
+        print(f"🚀 Starting automatic indexing of {len(file_paths)} files...")
+        
+        # Index the files
+        start_time = time.time()
+        indexing_time = rag_pipeline.index_documents(file_paths)
+        end_time = time.time()
+        
+        print(f"✅ Automatic indexing completed in {indexing_time:.1f} seconds")
+        print(f"📊 Total time including overhead: {end_time - start_time:.1f} seconds")
+        
+        # Verify indexing
+        remaining_unindexed = get_unindexed_files()
+        if not remaining_unindexed:
+            print("✅ All files successfully indexed!")
+        else:
+            print(f"⚠️  {len(remaining_unindexed)} files still unindexed: {remaining_unindexed}")
+            
+    except Exception as e:
+        print(f"❌ Error during automatic indexing: {e}")
+    finally:
+        _indexing_in_progress = False
+
+def start_auto_indexing_thread():
+    """Start automatic indexing in a background thread."""
+    global _indexing_thread
+    
+    if _indexing_thread and _indexing_thread.is_alive():
+        print("Auto-indexing thread already running...")
+        return
+    
+    _indexing_thread = threading.Thread(target=auto_index_unindexed_files, daemon=True)
+    _indexing_thread.start()
+    print("🔄 Auto-indexing thread started...")
+
 def initialize_pipelines():
     """Pre-initializes RAG pipelines for all supported providers at startup."""
     # Only initialize the default provider to avoid conflicts
@@ -52,6 +173,11 @@ def initialize_pipelines():
         _rag_pipelines[default_provider] = pipeline
         print(f"Successfully initialized pipeline for {default_provider}.")
         print(f"DEBUG: Pipeline {default_provider} stored in _rag_pipelines: {default_provider in _rag_pipelines}")
+        
+        # Start automatic indexing after pipeline initialization
+        print("🔄 Starting automatic indexing verification...")
+        start_auto_indexing_thread()
+        
     except ValueError as e:
         error_message = str(e)
         _initialization_errors[default_provider] = error_message
@@ -298,6 +424,7 @@ def get_documents():
                         # Try to get enhanced metadata from RAG pipeline
                         title = filename.replace('.pdf', '').replace('_', ' ').title()
                         author = "Unknown"
+                        is_indexed = False
                         
                         try:
                             # Get RAG pipeline to access document metadata
@@ -308,6 +435,7 @@ def get_documents():
                                 for doc in rag_pipeline.documents:
                                     if doc.metadata.get('filename') == filename:
                                         doc_metadata = doc.metadata
+                                        is_indexed = True
                                         break
                                 
                                 if doc_metadata:
@@ -321,7 +449,8 @@ def get_documents():
                             'title': title,
                             'author': author,
                             'size': file_size,
-                            'pages': page_count
+                            'pages': page_count,
+                            'is_indexed': is_indexed
                         })
         except Exception as e:
             return jsonify({'error': f'Failed to list documents: {str(e)}'}), 500
@@ -456,11 +585,74 @@ def indexing_status():
             filename = doc.metadata.get('filename', 'Unknown')
             file_counts[filename] = file_counts.get(filename, 0) + 1
         
+        # Get unindexed files
+        unindexed_files = get_unindexed_files()
+        
         return jsonify({
             'total_chunks': len(rag_pipeline.documents),
             'indexed_files': file_counts,
+            'unindexed_files': unindexed_files,
+            'indexing_in_progress': _indexing_in_progress,
             'status': 'ready'
         })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/auto_index', methods=['POST'])
+def trigger_auto_index():
+    """Manually trigger automatic indexing of unindexed files."""
+    try:
+        global _indexing_in_progress
+        
+        if _indexing_in_progress:
+            return jsonify({
+                'status': 'in_progress',
+                'message': 'Indexing is already in progress. Please wait.'
+            }), 200
+        
+        # Start auto-indexing in background thread
+        start_auto_indexing_thread()
+        
+        return jsonify({
+            'status': 'started',
+            'message': 'Automatic indexing started in background.'
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/check_indexing', methods=['GET'])
+def check_indexing():
+    """Check if all PDF files are indexed and return detailed status."""
+    try:
+        # Get all PDF files in upload folder
+        upload_folder = app.config['UPLOAD_FOLDER']
+        all_pdf_files = []
+        if os.path.exists(upload_folder):
+            for filename in os.listdir(upload_folder):
+                if filename.endswith('.pdf'):
+                    all_pdf_files.append(filename)
+        
+        # Get indexed files
+        indexed_files = get_indexed_files()
+        
+        # Get unindexed files
+        unindexed_files = get_unindexed_files()
+        
+        # Check if any files need indexing
+        needs_indexing = len(unindexed_files) > 0
+        
+        return jsonify({
+            'all_pdf_files': all_pdf_files,
+            'indexed_files': list(indexed_files),
+            'unindexed_files': unindexed_files,
+            'needs_indexing': needs_indexing,
+            'indexing_in_progress': _indexing_in_progress,
+            'total_files': len(all_pdf_files),
+            'indexed_count': len(indexed_files),
+            'unindexed_count': len(unindexed_files)
+        })
+        
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
