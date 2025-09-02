@@ -190,7 +190,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         const title = typeof doc === 'object' ? (doc.title || filename) : filename;
                         const author = typeof doc === 'object' ? (doc.author || 'Unknown') : 'Unknown';
                         const fileSize = typeof doc === 'object' ? doc.size : 0;
-                        const pageCount = typeof doc === 'object' ? doc.pages : 0;
 
                         // Format file size
                         const formatFileSize = (bytes) => {
@@ -202,7 +201,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         };
 
                         const formattedSize = formatFileSize(fileSize);
-                        const pageText = pageCount === 1 ? '1 page' : `${pageCount} pages`;
 
                         item.innerHTML = `
                             <div class="document-info">
@@ -212,7 +210,6 @@ document.addEventListener('DOMContentLoaded', () => {
                                     <div class="document-author">by ${author}</div>
                                     <div class="metadata">
                                         <span><i class="fas fa-hdd"></i> ${formattedSize}</span>
-                                        <span><i class="fas fa-file-alt"></i> ${pageText}</span>
                                     </div>
                                 </div>
                             </div>
